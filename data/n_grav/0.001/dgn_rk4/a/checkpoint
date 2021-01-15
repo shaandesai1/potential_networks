@@ -1,0 +1,2 @@
+model_checkpoint_path: "dgn_rk40.001rk4a"
+all_model_checkpoint_paths: "dgn_rk40.001rk4a"

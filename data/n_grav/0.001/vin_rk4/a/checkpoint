@@ -1,0 +1,2 @@
+model_checkpoint_path: "vin_rk40.001rk4a"
+all_model_checkpoint_paths: "vin_rk40.001rk4a"
