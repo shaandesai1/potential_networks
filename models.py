@@ -8,13 +8,29 @@ from graph_nets import modules
 from graph_nets import utils_tf
 import sonnet as snt
 import tensorflow as tf
-from utils import rk1, rk2, rk3, rk4, rk1ng, rk2ng, rk3ng, rk4ng
+from utils import *
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error
 import tensorflow.keras as tfk
 from tensorflow_probability import distributions as tfd
 import os
+
+
+def create_loss_ops(true, predicted):
+    """MSE loss"""
+    loss_ops = tf.reduce_mean((true - predicted) ** 2)
+    return loss_ops
+
+
+def log_likelihood_y(y, y_rec, log_noise_var):
+    """ noise loss"""
+    noise_var = tf.nn.softplus(log_noise_var) * tf.ones_like(y_rec)
+    py = tfd.Normal(y_rec, noise_var)
+    log_py = py.log_prob(y)
+    log_py = tf.reduce_sum(log_py, [0])
+    log_lik = tf.reduce_mean(log_py)
+    return log_lik
 
 
 def choose_integrator(method):
@@ -35,6 +51,19 @@ def choose_integrator(method):
     elif method == 'rk4':
         return rk4
 
+    # elif method == 'vi1':
+    #     return vi1
+    #
+    # elif method == 'vi2':
+    #     return vi2
+    #
+    # elif method == 'vi3':
+    #     return vi3
+
+    elif method == 'vi4':
+        return vi4
+
+
 
 def choose_integrator_nongraph(method):
     """
@@ -50,13 +79,34 @@ def choose_integrator_nongraph(method):
         return rk3ng
     elif method == 'rk4':
         return rk4ng
+    elif method == 'vi1':
+        return vi1ng
+    elif method == 'vi2':
+        return vi2ng
+    elif method == 'vi3':
+        return vi3ng
+    elif method == 'vi4':
+        return vi4ng
 
 
 class nongraph_model(object):
 
     def __init__(self, sess, deriv_method, num_nodes, BS, integ_meth, expt_name, lr,
                  noisy, spatial_dim, dt):
-
+        """
+            Builds a tensorflow classic non-graph model object
+            Args:
+                sess (tf.session): instantiated session
+                deriv_method (str): one of hnn,dgn,vin_rk1,vin_rk4,vin_rk1_lr,vin_rk4_lr
+                num_nodes (int): number of particles
+                BS (int): batch size
+                integ_method (str): rk1 or rk4 for now, though vign has higher order integrators
+                expt_name (str): identifier for specific experiment
+                lr (float): learning rate
+                is_noisy (bool): flag for noisy data
+                spatial_dim (int): the dimension of state vector for 1 particle (e.g. 2, [q,qdot] in spring system)
+                dt (float): sampling rate
+            """
         self.sess = sess
         self.deriv_method = deriv_method
         self.num_nodes = num_nodes
@@ -67,7 +117,6 @@ class nongraph_model(object):
         self.lr = lr
         self.spatial_dim = spatial_dim
         self.dt = dt
-        # self.eflag = eflag
         self.is_noisy = noisy
         self.log_noise_var = None
         if self.num_nodes == 1:
@@ -80,7 +129,7 @@ class nongraph_model(object):
 
     def _build_net(self):
         """
-        initializes all tf placeholders/graph networks/losses
+        initializes all tf placeholders/networks/losses
         """
 
         if self.is_noisy:
@@ -126,28 +175,14 @@ class nongraph_model(object):
             raise ValueError("the derivative generator is incorrect, should be dn,hnn or pn")
 
         if self.is_noisy:
-            self.loss_op_tr = -self.log_likelihood_y(next_step, self.ground_truth_ph, self.log_noise_var)
+            self.loss_op_tr = -log_likelihood_y(next_step, self.ground_truth_ph, self.log_noise_var)
         else:
-            self.loss_op_tr = self.create_loss_ops(next_step, self.ground_truth_ph)
+            self.loss_op_tr = create_loss_ops(next_step, self.ground_truth_ph)
 
         global_step = tf.compat.v1.Variable(0, trainable=False)
         rate = tf.compat.v1.train.exponential_decay(self.lr, global_step, 10000, 0.5, staircase=False)
         optimizer = tf.compat.v1.train.AdamOptimizer(rate)
         self.step_op = optimizer.minimize(self.loss_op_tr, global_step=global_step)
-
-    def create_loss_ops(self, true, predicted):
-        """MSE loss"""
-        loss_ops = tf.reduce_mean((true - predicted) ** 2)
-        return loss_ops
-
-    def log_likelihood_y(self, y, y_rec, log_noise_var):
-        """ noise loss"""
-        noise_var = tf.nn.softplus(log_noise_var) * tf.ones_like(y_rec)
-        py = tfd.Normal(y_rec, noise_var)
-        log_py = py.log_prob(y)
-        log_py = tf.reduce_sum(log_py, [0])
-        log_lik = tf.reduce_mean(log_py)
-        return log_lik
 
     def deriv_fun_dn(self, xt):
         output_nodes = self.mlp(xt)
@@ -161,8 +196,8 @@ class nongraph_model(object):
         return tf.matmul(dH, self.M)
 
     def deriv_fun_pnn(self, xt):
-        qvals = xt[:, :int(self.spatial_dim )]
-        pvals = xt[:, int(self.spatial_dim ):]
+        qvals = xt[:, :int(self.spatial_dim * self.num_nodes / 2)]
+        pvals = xt[:, int(self.spatial_dim * self.num_nodes / 2):]
         with tf.GradientTape() as g:
             g.watch(qvals)
             output_nodes = self.mlp(qvals)
@@ -172,7 +207,7 @@ class nongraph_model(object):
     def permutation_tensor(self, n):
         M = None
         M = tf.eye(n)
-        M = tf.concat([M[n // 2:], -M[:n // 2]],0)
+        M = tf.concat([M[n // 2:], -M[:n // 2]], 0)
         return M
 
     def train_step(self, input_batch, true_batch):
@@ -282,86 +317,37 @@ class graph_model(object):
 
         integ = choose_integrator(self.integ_method)
 
-        if self.deriv_method == 'dgn_rk4':
+        if self.deriv_method == 'dgn':
             next_step = integ(self.deriv_fun_dgn, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
                               self.num_nodes)
             self.test_next_step = integ(self.deriv_fun_dgn, self.test_graph_ph, self.test_ks_ph, self.test_ms_ph,
                                         self.dt, 1, self.num_nodes)
-
-        elif self.deriv_method == 'hnn_rk4':
-            next_step = integ(self.deriv_fun_hnn, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
+        elif self.deriv_method == 'hogn':
+            next_step = integ(self.deriv_fun_hogn, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
                               self.num_nodes)
-            self.test_next_step = integ(self.deriv_fun_hnn, self.test_graph_ph, self.test_ks_ph, self.test_ms_ph,
+            self.test_next_step = integ(self.deriv_fun_hogn, self.test_graph_ph, self.test_ks_ph, self.test_ms_ph,
                                         self.dt, 1, self.num_nodes)
-        elif self.deriv_method == 'hnn_vi2':
-            next_step = self.hnn_vi2(self.deriv_fun_hnn, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
-                                     self.num_nodes)
-            self.test_next_step = self.hnn_vi2(self.deriv_fun_hnn, self.test_graph_ph, self.test_ks_ph, self.test_ms_ph,
-                                               self.dt, 1, self.num_nodes)
-
-        elif self.deriv_method == 'hnn_vi4':
-            next_step = self.hnn_vi4(self.deriv_fun_hnn, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
-                                     self.num_nodes)
-            self.test_next_step = self.hnn_vi4(self.deriv_fun_hnn, self.test_graph_ph, self.test_ks_ph, self.test_ms_ph,
-                                               self.dt, 1, self.num_nodes)
-
-        elif self.deriv_method == "vin_rk2":
-            next_step = self.rk2(self.deriv_fun_vin, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
-                                 self.num_nodes)
-            self.test_next_step = self.rk2(self.deriv_fun_vin, self.test_graph_ph, self.test_ks_ph, self.test_ms_ph,
-                                           self.dt, 1, self.num_nodes)
-        elif self.deriv_method == 'vin_rk4':
-            next_step = self.rk4_vin(self.deriv_fun_vin, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
-                                     self.num_nodes)
-            self.test_next_step = self.rk4_vin(self.deriv_fun_vin, self.test_graph_ph, self.test_ks_ph, self.test_ms_ph,
-                                               self.dt, 1, self.num_nodes)
-
-        elif self.deriv_method == "vin_vi2":
-            next_step = self.vin2(self.deriv_fun_vin, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
-                                  self.num_nodes)
-            self.test_next_step = self.vin2(self.deriv_fun_vin, self.test_graph_ph, self.test_ks_ph, self.test_ms_ph,
-                                            self.dt, 1, self.num_nodes)
-
-        elif self.deriv_method == "vin_vi4":
-            next_step = self.vin4(self.deriv_fun_vin, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
-                                  self.num_nodes)
-            self.test_next_step = self.vin4(self.deriv_fun_vin, self.test_graph_ph, self.test_ks_ph, self.test_ms_ph,
-                                            self.dt, 1, self.num_nodes)
-
-        elif self.deriv_method == "vin_vi4_2":
-            next_step = self.vin4_2(self.deriv_fun_vin, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
-                                    self.num_nodes)
-            self.test_next_step = self.vin4_2(self.deriv_fun_vin, self.test_graph_ph, self.test_ks_ph, self.test_ms_ph,
-                                              self.dt, 1, self.num_nodes)
-
-
-        elif self.deriv_method == 'vin_vi4_lr':
-            next_step = self.future_pred(self.vin4, self.deriv_fun_vin, self.base_graph_tr, self.ks_ph, self.ms_ph,
-                                         self.dt, 1, self.num_nodes)
-            self.test_next_step = self.vin4(self.deriv_fun_vin, self.test_graph_ph, self.test_ks_ph, self.test_ms_ph,
-                                            self.dt, 1, self.num_nodes)
+        elif self.deriv_method == 'pgn':
+            next_step = integ(self.deriv_fun_pgn, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
+                              self.num_nodes)
+            self.test_next_step = integ(self.deriv_fun_pgn, self.test_graph_ph, self.test_ks_ph, self.test_ms_ph,
+                                        self.dt, 1, self.num_nodes)
+        else:
+            raise ValueError("the derivative generator is incorrect, should be dgn,hogn or pgn")
 
         if self.is_noisy:
-            self.loss_op_tr = -self.log_likelihood_y(next_step, self.true_dq_ph, self.log_noise_var)
+            self.loss_op_tr = -log_likelihood_y(next_step, self.true_dq_ph, self.log_noise_var)
         else:
-            self.loss_op_tr = self.create_loss_ops(self.true_dq_ph, next_step)
-
-        # if self.deriv_method == 'vin_rk4_lr':
-        #     # alternative loss
-        #     self.loss_op_tr = tf.reduce_mean(tf.reduce_sum((next_step - self.true_dq_ph) ** 2, 0))
+            self.loss_op_tr = create_loss_ops(self.true_dq_ph, next_step)
 
         global_step = tf.compat.v1.Variable(0, trainable=False)
-        # if self.deriv_method =='vin_vi4':
         rate = tf.compat.v1.train.exponential_decay(self.lr, global_step, 10000, 0.5, staircase=False)
-        # else:
-        #    rate = tf.compat.v1.train.exponential_decay(self.lr, global_step, 20000, 0.5, staircase=False)
-
         optimizer = tf.compat.v1.train.AdamOptimizer(rate)
         self.step_op = optimizer.minimize(self.loss_op_tr, global_step=global_step)
 
     def future_pred(self, integ, deriv_fun, state_init, ks, ms, dt, bs, num_nodes):
         """
-        only used with vign_lr - future step predictions
+        only used with long range rollout (i.e. neuralODE without adjoint method) - future step predictions
         """
         accum = []
 
@@ -377,11 +363,6 @@ class graph_model(object):
         yhat = tf.concat(accum, 0)
         return yhat[num_nodes:]
 
-    def create_loss_ops(self, true, predicted):
-        """MSE loss"""
-        loss_ops = tf.reduce_mean((true - predicted) ** 2)
-        return loss_ops
-
     def base_graph(self, input_features, ks, ms, num_nodes):
         """builds graph for every group of particles"""
         # Node features for graph 0.
@@ -392,7 +373,7 @@ class graph_model(object):
 
         senders_0 = []
         receivers_0 = []
-        edges_0 = []
+        # edges_0 = []
         an = np.arange(0, num_nodes, 1)
         for i in range(len(an)):
             for j in range(i + 1, len(an)):
@@ -409,176 +390,22 @@ class graph_model(object):
 
         return data_dict_0
 
-    def rk2(self, dx_dt_fn, x_t, ks, ms, dt, bs, nodes):
-        """classical vign in newtonian mechanical system"""
-        m_init = tf.reshape(ms, [-1, 1])
-        m_init = tf.repeat(m_init, int(self.spatial_dim / 2), axis=1)
-        init_x, init_v = x_t[:, :int(self.spatial_dim / 2)], x_t[:, int(self.spatial_dim / 2):] / m_init
+    def deriv_fun_dgn(self, xt, ks, ms, bs, n_nodes):
+        if self.activate_sub == True:
+            sub_vecs = [self.sub_mean(xt[n_nodes * i:n_nodes * (i + 1), :]) for i in range(bs)]
+        else:
+            sub_vecs = [xt[n_nodes * i:n_nodes * (i + 1), :] for i in range(bs)]
 
-        vddot = -dx_dt_fn(init_x, ks, ms, bs, nodes) / m_init
-        x1 = init_x + init_v * self.dt / 2
-        v1 = init_v + vddot * self.dt / 2
+        input_vec = tf.concat(sub_vecs, 0)
+        vec2g = [self.base_graph(input_vec[n_nodes * i:n_nodes * (i + 1)], ks[i], ms[i], n_nodes) for i in range(bs)]
+        vec2g = utils_tf.data_dicts_to_graphs_tuple(vec2g)
+        vec2g = utils_tf.set_zero_global_features(vec2g, 1)
+        vec2g = utils_tf.set_zero_edge_features(vec2g, 1)
+        output_graphs = self.graph_network(vec2g)
+        new_node_vals = self.out_to_node(output_graphs.nodes)
+        return new_node_vals
 
-        vddot1 = -dx_dt_fn(x1, ks, ms, bs, nodes) / m_init
-        x2 = init_x + v1 * self.dt
-        v2 = init_v + vddot1 * self.dt
-
-        fin_p = m_init * v2
-        return tf.concat([x2, fin_p], 1)
-
-    def rk1_vin(self, dx_dt_fn, x_t, ks, ms, dt, bs, nodes):
-        """classical vign in newtonian mechanical system"""
-        m_init = tf.reshape(ms, [-1, 1])
-        m_init = tf.repeat(m_init, int(self.spatial_dim / 2), axis=1)
-        init_x, init_v = x_t[:, :int(self.spatial_dim / 2)], x_t[:, int(self.spatial_dim / 2):] / m_init
-
-        k0 = dt * init_v
-        l0 = -dt * dx_dt_fn(init_x, ks, ms, bs, nodes) / m_init
-
-        fin_x = init_x + k0
-        fin_v = init_v + l0
-
-        fin_p = m_init * fin_v
-        return tf.concat([fin_x, fin_p], 1)
-
-    def hnn_vi2(self, dx_dt_fn, x_t, ks, ms, dt, bs, nodes):
-        """classical vign in newtonian mechanical system"""
-        # m_init = tf.reshape(ms, [-1, 1])
-        # m_init = tf.repeat(m_init, int(self.spatial_dim / 2), axis=1)
-        # init_x, init_v = x_t[:, :int(self.spatial_dim / 2)], x_t[:, int(self.spatial_dim / 2):] / m_init
-
-        p = x_t[:, int(self.spatial_dim / 2):]
-        q = x_t[:, :int(self.spatial_dim / 2)]
-
-        phalf = p + (self.dt / 2) * dx_dt_fn(x_t, ks, ms, bs, nodes)[:, int(self.spatial_dim / 2):]
-        qnext = q + (self.dt / 2) * 2 * dx_dt_fn(tf.concat([q, phalf], 1), ks, ms, bs, nodes)[:,
-                                        :int(self.spatial_dim / 2)]
-        pnext = phalf + (self.dt / 2) * dx_dt_fn(tf.concat([qnext, phalf], 1), ks, ms, bs, nodes)[:,
-                                        int(self.spatial_dim / 2):]
-
-        return tf.concat([qnext, pnext], 1)
-
-    def vin2(self, dx_dt_fn, x_t, ks, ms, dt, bs, nodes):
-        """classical vign in newtonian mechanical system"""
-        m_init = tf.reshape(ms, [-1, 1])
-        m_init = tf.repeat(m_init, int(self.spatial_dim / 2), axis=1)
-        init_x, init_v = x_t[:, :int(self.spatial_dim / 2)], x_t[:, int(self.spatial_dim / 2):] / m_init
-
-        q = init_x
-        p = init_v
-        dUdq = -dx_dt_fn(q, ks, ms, bs, nodes) / m_init
-        qddot = dUdq
-        q_next = q + dt * p + 0.5 * (dt ** 2) * qddot
-        dUdq_next = -dx_dt_fn(q_next, ks, ms, bs, nodes) / m_init
-        dUdq_mid = dUdq + dUdq_next
-        qddot_mid = dUdq_mid
-        p_next = p + 0.5 * self.dt * qddot_mid
-        fin_x = q_next
-        fin_p = m_init * p_next
-        return tf.concat([fin_x, fin_p], 1)
-
-    def hnn_vi4(self, dx_dt_fn, x_t, ks, ms, dt, bs, nodes):
-        """classical vign in newtonian mechanical system"""
-        m_init = tf.reshape(ms, [-1, 1])
-        m_init = tf.repeat(m_init, int(self.spatial_dim / 2), axis=1)
-        init_x, init_v = x_t[:, :int(self.spatial_dim / 2)], x_t[:, int(self.spatial_dim / 2):] / m_init
-
-        w0 = -(2 ** (1 / 3)) / (2 - 2 ** (1 / 3))
-        w1 = 1 / (2 - 2 ** (1 / 3))
-        c1 = c4 = w1 / 2
-        c2 = c3 = (w0 + w1) / 2
-        d1 = d3 = w1
-        d2 = w0
-
-        q = init_x
-        p = init_v
-
-        q1 = q + c1 * dt * dx_dt_fn(tf.concat([q, p], 1), ks, ms, bs, nodes)[:, :int(self.spatial_dim / 2)]
-        p1 = p + dt * d1 * dx_dt_fn(tf.concat([q1, p], 1), ks, ms, bs, nodes)[:, int(self.spatial_dim / 2):]
-        q2 = q1 + c2 * dt * dx_dt_fn(tf.concat([q1, p1], 1), ks, ms, bs, nodes)[:, :int(self.spatial_dim / 2)]
-        p2 = p1 + dt * d2 * dx_dt_fn(tf.concat([q2, p1], 1), ks, ms, bs, nodes)[:, int(self.spatial_dim / 2):]
-        q3 = q2 + c3 * dt * dx_dt_fn(tf.concat([q2, p2], 1), ks, ms, bs, nodes)[:, :int(self.spatial_dim / 2)]
-        p3 = p2 + dt * d3 * dx_dt_fn(tf.concat([q3, p2], 1), ks, ms, bs, nodes)[:, int(self.spatial_dim / 2):]
-
-        q_next = q3 + c4 * dt * p3
-        p_next = m_init * p3
-
-        return tf.concat([q_next, p_next], 1)
-
-    def vin4(self, dx_dt_fn, x_t, ks, ms, dt, bs, nodes):
-        """classical vign in newtonian mechanical system"""
-        m_init = tf.reshape(ms, [-1, 1])
-        m_init = tf.repeat(m_init, int(self.spatial_dim / 2), axis=1)
-        init_x, init_v = x_t[:, :int(self.spatial_dim / 2)], x_t[:, int(self.spatial_dim / 2):] / m_init
-
-        w0 = -(2 ** (1 / 3)) / (2 - 2 ** (1 / 3))
-        w1 = 1 / (2 - 2 ** (1 / 3))
-        c1 = c4 = w1 / 2
-        c2 = c3 = (w0 + w1) / 2
-        d1 = d3 = w1
-        d2 = w0
-
-        q = init_x
-        p = init_v
-
-        q1 = q + c1 * dt * p
-        p1 = p + dt * d1 * -dx_dt_fn(q1, ks, ms, bs, nodes) / m_init
-        q2 = q1 + c2 * dt * p1
-        p2 = p1 + dt * d2 * -dx_dt_fn(q2, ks, ms, bs, nodes) / m_init
-        q3 = q2 + c3 * dt * p2
-        p3 = p2 + dt * d3 * -dx_dt_fn(q3, ks, ms, bs, nodes) / m_init
-
-        q_next = q3 + c4 * dt * p3
-        p_next = m_init * p3
-
-        return tf.concat([q_next, p_next], 1)
-
-    def vin4_2(self, dx_dt_fn, x_t, ks, ms, dt, bs, nodes):
-        """classical vign in newtonian mechanical system"""
-        m_init = tf.reshape(ms, [-1, 1])
-        m_init = tf.repeat(m_init, int(self.spatial_dim / 2), axis=1)
-        init_x, init_v = x_t[:, :int(self.spatial_dim / 2)], x_t[:, int(self.spatial_dim / 2):] / m_init
-
-        a1 = a4 = 1. / 6 * (2 + 2 ** (1 / 3) + 2 ** (-1 / 3))
-        a2 = a3 = 1. / 6 * (1 - 2 ** (1 / 3) - 2 ** (-1 / 3))
-        b1 = 0
-        b2 = b4 = 1. / (2 - 2 ** (1 / 3))
-        b3 = 1. / (1 - 2 ** (2 / 3))
-
-        q = init_x
-        p = init_v
-
-        p1 = p + dt * b1 * -dx_dt_fn(q, ks, ms, bs, nodes) / m_init  # (dx_dt_fn(np.array([q1,p]),t))[1]
-        q1 = q + a1 * dt * p1
-        p2 = p1 + dt * b2 * -dx_dt_fn(q1, ks, ms, bs, nodes) / m_init  # (dx_dt_fn(np.array([q2,p1]),t))[1]
-        q2 = q1 + a2 * dt * p2
-        p3 = p2 + dt * b3 * -dx_dt_fn(q2, ks, ms, bs, nodes) / m_init  # (dx_dt_fn(np.array([q3,p2]),t))[1]
-        q3 = q2 + a3 * dt * p3
-        p4 = p3 + dt * b4 * -dx_dt_fn(q3, ks, ms, bs, nodes) / m_init
-        q4 = q3 + a4 * dt * p4
-
-        return tf.concat([q4, p4], 1)
-
-    def rk4_vin(self, dx_dt_fn, x_t, ks, ms, dt, bs, nodes):
-        m_init = tf.reshape(ms, [-1, 1])
-        m_init = tf.repeat(m_init, int(self.spatial_dim / 2), axis=1)
-        init_x, init_v = x_t[:, :int(self.spatial_dim / 2)], x_t[:, int(self.spatial_dim / 2):] / m_init
-
-        k0 = dt * init_v
-        l0 = -dt * dx_dt_fn(init_x, ks, ms, bs, nodes) / m_init
-        k1 = dt * (init_v + 0.5 * l0)
-        l1 = -dt * dx_dt_fn(init_x + 0.5 * k0, ks, ms, bs, nodes) / m_init
-        k2 = dt * (init_v + 0.5 * l1)
-        l2 = -dt * dx_dt_fn(init_x + 0.5 * k1, ks, ms, bs, nodes) / m_init
-        k3 = dt * (init_v + l2)
-        l3 = -dt * dx_dt_fn(init_x + k2, ks, ms, bs, nodes) / m_init
-        fin_x = init_x + (1. / 6) * (k0 + 2. * k1 + 2. * k2 + k3)
-        fin_v = init_v + (1. / 6) * (l0 + 2. * l1 + 2. * l2 + l3)
-
-        fin_p = m_init * fin_v
-        return tf.concat([fin_x, fin_p], 1)
-
-    def deriv_fun_hnn(self, xt, ks, ms, bs, n_nodes):
+    def deriv_fun_hogn(self, xt, ks, ms, bs, n_nodes):
         if self.activate_sub == True:
             sub_vecs = [self.sub_mean(xt[n_nodes * i:n_nodes * (i + 1), :]) for i in range(bs)]
         else:
@@ -601,50 +428,28 @@ class graph_model(object):
         dHdin = tf.concat([dqdt, dpdt], 1)
         return dHdin
 
-    def deriv_fun_dgn(self, xt, ks, ms, bs, n_nodes):
-        if self.activate_sub == True:
-            sub_vecs = [self.sub_mean(xt[n_nodes * i:n_nodes * (i + 1), :]) for i in range(bs)]
-        else:
-            sub_vecs = [xt[n_nodes * i:n_nodes * (i + 1), :] for i in range(bs)]
-
-        input_vec = tf.concat(sub_vecs, 0)
-        vec2g = [self.base_graph(input_vec[n_nodes * i:n_nodes * (i + 1)], ks[i], ms[i], n_nodes) for i in range(bs)]
-        vec2g = utils_tf.data_dicts_to_graphs_tuple(vec2g)
-        vec2g = utils_tf.set_zero_global_features(vec2g, 1)
-        vec2g = utils_tf.set_zero_edge_features(vec2g, 1)
-        output_graphs = self.graph_network(vec2g)
-        new_node_vals = self.out_to_node(output_graphs.nodes)
-        return new_node_vals
-
-    def log_likelihood_y(self, y, y_rec, log_noise_var):
-        """ noise loss"""
-        noise_var = tf.nn.softplus(log_noise_var) * tf.ones_like(y_rec)
-        py = tfd.Normal(y_rec, noise_var)
-        log_py = py.log_prob(y)
-        log_py = tf.reduce_sum(log_py, [0])
-        log_lik = tf.reduce_mean(log_py)
-        return log_lik
-
     def sub_mean(self, xt):
         init_x = xt[:, :int(self.spatial_dim / 2)]
         means = tf.reduce_mean(init_x, 0)
         new_means = tf.transpose(tf.reshape(tf.repeat(means, init_x.shape[0]), (int(self.spatial_dim / 2), -1)))
         return tf.concat([init_x - new_means, xt[:, int(self.spatial_dim / 2):]], 1)
 
-    def deriv_fun_vin(self, xt, ks, ms, bs, n_nodes):
+    def deriv_fun_pgn(self, xt, ks, ms, bs, n_nodes):
         if self.activate_sub == True:
             sub_vecs = [self.sub_mean(xt[n_nodes * i:n_nodes * (i + 1), :]) for i in range(bs)]
         else:
             sub_vecs = [xt[n_nodes * i:n_nodes * (i + 1), :] for i in range(bs)]
 
         input_vec = tf.concat(sub_vecs, 0)
+        q=input_vec[:,:int(self.spatial_dim/2)]
+        p=input_vec[:,int(self.spatial_dim/2):]
 
         with tf.GradientTape() as g:
-            g.watch(input_vec)
+            g.watch(q)
             if bs == 1:
-                vec2g = [self.base_graph(input_vec[n_nodes * i:n_nodes * (i + 1)], ks, ms, n_nodes) for i in range(bs)]
+                vec2g = [self.base_graph(q[n_nodes * i:n_nodes * (i + 1)], ks, ms, n_nodes) for i in range(bs)]
             else:
-                vec2g = [self.base_graph(input_vec[n_nodes * i:n_nodes * (i + 1)], ks[i], ms[i], n_nodes) for i in
+                vec2g = [self.base_graph(q[n_nodes * i:n_nodes * (i + 1)], ks[i], ms[i], n_nodes) for i in
                          range(bs)]
 
             vec2g = utils_tf.data_dicts_to_graphs_tuple(vec2g)
@@ -653,9 +458,9 @@ class graph_model(object):
             output_graphs = self.graph_network(vec2g)
             global_vals = self.out_to_global(output_graphs.globals)
 
-        dUdq = g.gradient(global_vals, input_vec)
+        dUdq = g.gradient(global_vals, q)
 
-        return dUdq
+        return tf.concat([p,-dUdq],1)
 
     def train_step(self, input_batch, true_batch, ks, mass):
 

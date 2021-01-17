@@ -12,13 +12,13 @@ import argparse
 from time import process_time
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-ni', '--num_iters', type=int, default=10000)
+parser.add_argument('-ni', '--num_iters', type=int, default=20000)
 parser.add_argument("-n_test_traj", '--ntesttraj', type=int, default=20)
 parser.add_argument("-n_train_traj", '--ntraintraj', type=int, default=10)
 parser.add_argument('-srate', '--srate', type=float, default=0.4)
 parser.add_argument('-dt', '--dt', type=float, default=0.4)
 parser.add_argument('-tmax', '--tmax', type=float, default=20.4)
-parser.add_argument('-integrator', '--integrator', type=str, default='rk4')
+parser.add_argument('-integrator', '--integrator', type=str, default='vi4')
 parser.add_argument('-save_name', '--save_name', type=str, default='trials_noise')
 parser.add_argument('-num_nodes', '--num_nodes', type=int, default=2)
 parser.add_argument('-dname', '--dname', type=str, default='n_grav')
@@ -51,19 +51,13 @@ BS = 200
 BS_test = num_samples_per_traj
 # dimension of a single particle, if 1D, spdim is 2
 spdim = int(train_data['x'][0].shape[0] / num_nodes)
-# print('xnow:{},xnext:{}'.format(xnow.shape, xnext.shape))
-# print('tot_samples:{},tot_iters:{},ntrain_iters:{}'.format(tot_train_samples, Tot_iters, num_training_iterations))
-
 print_every = 1000
 
 # model loop settings
 model_types = ['classic','graphic']
 
-classic_methods = [ 'hnn', 'pnn']
-if integ == 'rk1':
-    graph_methods = ['vin_rk1_lr']
-if integ == 'rk4':
-    graph_methods = ['dgn_rk4','hnn_rk4','vin_rk4']
+classic_methods = ['dn','hnn','pnn']
+graph_methods = ['dgn','hogn','pgn']
 
 lr_stack = [1e-3]
 for model_type in model_types:
@@ -72,6 +66,9 @@ for model_type in model_types:
                                      spatial_dim=spdim,nograph=True)
         test_xnow, test_xnext, test_dxnow = nownext(valid_data, n_test_traj, num_nodes, T_max, dt, srate,
                                                     spatial_dim=spdim,nograph=True)
+
+
+
         tot_train_samples = int(xnow.shape[0])
 
         tot_train_samples_valid = int(test_xnow.shape[0])
@@ -82,7 +79,21 @@ for model_type in model_types:
         error_collector = np.zeros((len(lr_stack), len(classic_methods), n_test_traj))
         for lr_index, sublr in enumerate(lr_stack):
             for gm_index, classic_method in enumerate(classic_methods):
-                data_dir = 'data/' + dataset_name + '/' + str(sublr) + '/' + classic_method + '/' + fname + '/'
+
+                #pass the masses to the function if we have them
+                #mainly used for simultaneously learning from systems with different masses during training
+                #can abstract this and allow the network
+                # if classic_method == 'pnn':
+                #     newmass = np.repeat(train_data['mass'], num_samples_per_traj, axis=0)
+                #     subdim_ = int(spdim / 2)
+                #     if subdim_ != 1:
+                #         newmass = np.repeat(newmass, subdim_, axis=1)
+                #     xnow[:,int(subdim_*num_nodes):] = xnow[:,int(subdim_*num_nodes):]/newmass
+                #     xnext[:, int(subdim_ * num_nodes):] = xnext[:, int(subdim_ * num_nodes):] / newmass
+                #     test_xnow[:, int(subdim_ * num_nodes):] = test_xnow[:, int(subdim_ * num_nodes):] / newmass
+                #     test_xnext[:, int(subdim_ * num_nodes):] = test_xnext[:, int(subdim_ * num_nodes):] / newmass
+
+                data_dir = 'data/' + dataset_name + '/' + str(sublr) + '/' + classic_method + '/'+ fname + '/'
                 if not os.path.exists(data_dir):
                     print('non existent path....creating path')
                     os.makedirs(data_dir)
@@ -97,11 +108,11 @@ for model_type in model_types:
                 except NameError:
                     pass
 
-                tf.compat.v1.reset_default_graph()
-                sess = tf.compat.v1.Session()
+                tf.reset_default_graph()
+                sess = tf.Session()
                 gm = nongraph_model(sess,classic_method, num_nodes, BS, integ, expt_name, sublr, noisy, spdim, srate)
                 sess.run(tf.global_variables_initializer())
-                saver = tf.compat.v1.train.Saver()
+                saver = tf.train.Saver()
                 xvec = np.arange(0, tot_train_samples, 1, dtype=int)
                 xvec_valid = np.arange(0, tot_train_samples_valid, 1, dtype=int)
                 for iteration in range(num_training_iterations):
@@ -114,6 +125,7 @@ for model_type in model_types:
                         true_batch = np.vstack(
                             [xnext[xvec[i]] for i in
                              range(sub_iter * BS, (sub_iter + 1) * BS)])
+                        # batch_masses = np.vstack([newmass[xvec[i]]] for i in range(sub_iter*BS,(sub_iter+1)*BS))
                         loss = gm.train_step(input_batch, true_batch)
                         # t1_end = process_time()
                         writer.add_scalar('train_loss', loss, iteration * Tot_iters + sub_iter)
@@ -152,9 +164,9 @@ for model_type in model_types:
                 print('mean test error:{}'.format(error_collector[lr_index, :, :].mean(1)))
                 print('std test error:{}'.format(error_collector[lr_index, :, :].std(1)))
             if noisy:
-                np.save('data/' + dataset_name + '/collater_noisy' + fname + '.npy', error_collector)
+                np.save(data_dir +dirw+ 'classic_collater_noisy' + '.npy', error_collector)
             else:
-                np.save('data/' + dataset_name + '/collater' + fname + '.npy', error_collector)
+                np.save(data_dir +dirw+'classic_collater' + '.npy', error_collector)
 
 
     elif model_type == 'graphic':
@@ -180,22 +192,25 @@ for model_type in model_types:
                 if not os.path.exists(data_dir):
                     print('non existent path....creating path')
                     os.makedirs(data_dir)
+
+
                 dirw = graph_method + str(sublr) + integ + fname
                 if noisy:
                     writer = SummaryWriter('noisy/' + dataset_name + '/' + str(sublr) + '/' + graph_method + '/' + dirw)
                 else:
                     writer = SummaryWriter(
                         'noiseless/' + dataset_name + '/' + str(sublr) + '/' + graph_method + '/' + dirw)
+
                 try:
                     sess.close()
                 except NameError:
                     pass
 
-                tf.compat.v1.reset_default_graph()
-                sess = tf.compat.v1.Session()
+                tf.reset_default_graph()
+                sess = tf.Session()
                 gm = graph_model(sess, graph_method, num_nodes, BS, integ, expt_name, sublr, noisy, spdim, srate, True)
                 sess.run(tf.global_variables_initializer())
-                saver = tf.compat.v1.train.Saver()
+                saver = tf.train.Saver()
                 xvec = np.arange(0, tot_train_samples, 1, dtype=int)
                 xvec_valid = np.arange(0, tot_train_samples_valid, 1, dtype=int)
                 for iteration in range(num_training_iterations):
@@ -254,9 +269,10 @@ for model_type in model_types:
                 print('mean test error:{}'.format(error_collector[lr_index, :, :].mean(1)))
                 print('std test error:{}'.format(error_collector[lr_index, :, :].std(1)))
             if noisy:
-                np.save('data/' + dataset_name + '/collater_noisy' + fname + '.npy', error_collector)
+                np.save(data_dir + 'graphic_collater_noisy' + '.npy', error_collector)
             else:
-                np.save('data/' + dataset_name + '/collater' + fname + '.npy', error_collector)
+                np.save(data_dir + 'graphic_collater' + '.npy', error_collector)
+
     try:
         sess.close()
     except NameError:

@@ -8,10 +8,10 @@ Adapted,in part, from https://github.com/greydanus/hamiltonian-nn
 import pickle
 from scipy.integrate import solve_ivp as rk
 import autograd
-import autograd.numpy as np
+# import autograd.numpy as np
 from autograd.numpy import cos, sin
 solve_ivp = rk
-
+import numpy as np
 
 def get_dataset(data_name, expt_name, num_samples, num_particles, T_max, dt, srate, noise_std=0, seed=0, pixels=False):
     """
@@ -163,10 +163,10 @@ def spring_particle(name, num_trajectories, NUM_PARTS, T_max, dt, sub_sample_rat
     np.random.seed(seed)
 
     for traj in range(num_trajectories):
-        ks = np.random.uniform(.5, 1, size=(NUM_PARTS))
+        ks = np.ones(NUM_PARTS)#np.random.uniform(.5, 1, size=(NUM_PARTS))
         positions = np.random.uniform(-1, 1, size=(NUM_PARTS, 2))
         velocities = np.random.uniform(-3, 3, size=(NUM_PARTS, 2))
-        masses = np.random.uniform(0.1, 1, size=NUM_PARTS)
+        masses = np.ones(NUM_PARTS)#np.random.uniform(0.1, 1, size=NUM_PARTS)
         momentum = np.multiply(velocities, np.repeat(masses, 2).reshape(-1, 2))
         q = np.concatenate([positions, momentum]).ravel()
         qnrk = rk(lambda t, y: diffeq_hyper(t, y, ks, masses, num_particles), (0, T_max), q,
