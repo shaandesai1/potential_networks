@@ -46,7 +46,7 @@ expt_name = args.save_name
 fname = args.fname
 # dataset preprocessing
 train_data = get_dataset(dataset_name, expt_name, num_trajectories, num_nodes, T_max, dt, srate, args.noise, 0)
-valid_data = get_dataset(dataset_name, expt_name, n_test_traj, num_nodes, T_max, dt, srate, 0, 1)
+valid_data = get_dataset(dataset_name, expt_name, n_test_traj, num_nodes, T_max, dt, srate, 0, 11)
 BS = 200
 BS_test = num_samples_per_traj
 # dimension of a single particle, if 1D, spdim is 2
@@ -116,8 +116,8 @@ for model_type in model_types:
                 xvec = np.arange(0, tot_train_samples, 1, dtype=int)
                 xvec_valid = np.arange(0, tot_train_samples_valid, 1, dtype=int)
                 for iteration in range(num_training_iterations):
-                    if classic_method != 'vin_rk4_lr':
-                        np.random.shuffle(xvec)
+                    np.random.shuffle(xvec)
+                    np.random.shuffle(xvec_valid)
                     for sub_iter in range(Tot_iters):
                         input_batch = np.vstack(
                             [xnow[xvec[i]] for i in
@@ -133,10 +133,10 @@ for model_type in model_types:
                             print('Iteration:{},Training Loss:{:.3g}'.format(iteration * Tot_iters + sub_iter, loss))
                             input_batch = np.vstack(
                                 [test_xnow[xvec_valid[i]] for i in
-                                 range(sub_iter * BS, (sub_iter + 1) * BS)])
+                                 range(0 * BS, (0 + 1) * BS)])
                             true_batch = np.vstack(
                                 [test_xnext[xvec_valid[i]] for i in
-                                 range(sub_iter * BS, (sub_iter + 1) * BS)])
+                                 range(0 * BS, (0 + 1) * BS)])
                             # t1_start = process_time()
                             loss = gm.valid_step(input_batch, true_batch)
                             print('Iteration:{},Validation Loss:{:.3g}'.format(iteration * Tot_iters + sub_iter, loss))
@@ -156,13 +156,13 @@ for model_type in model_types:
                 else:
                     saver.save(sess, data_dir + classic_method + str(sublr) + integ + fname)
 
-                for t_iters in range(n_test_traj):
-                    input_batch = test_xnow[t_iters*BS_test:t_iters*BS_test+1]
-                    true_batch = test_xnext[t_iters * BS_test: (t_iters + 1) * BS_test]
-                    error, _ = gm.test_step(input_batch, true_batch, BS_test)
-                    error_collector[lr_index, gm_index, t_iters] = error
-                print('mean test error:{}'.format(error_collector[lr_index, :, :].mean(1)))
-                print('std test error:{}'.format(error_collector[lr_index, :, :].std(1)))
+                # for t_iters in range(n_test_traj):
+                #     input_batch = test_xnow[t_iters*BS_test:t_iters*BS_test+1]
+                #     true_batch = test_xnext[t_iters * BS_test: (t_iters + 1) * BS_test]
+                #     error, _ = gm.test_step(input_batch, true_batch, BS_test)
+                #     error_collector[lr_index, gm_index, t_iters] = error
+                # print('mean test error:{}'.format(error_collector[lr_index, :, :].mean(1)))
+                # print('std test error:{}'.format(error_collector[lr_index, :, :].std(1)))
             if noisy:
                 np.save(data_dir +dirw+ 'classic_collater_noisy' + '.npy', error_collector)
             else:
@@ -214,8 +214,8 @@ for model_type in model_types:
                 xvec = np.arange(0, tot_train_samples, 1, dtype=int)
                 xvec_valid = np.arange(0, tot_train_samples_valid, 1, dtype=int)
                 for iteration in range(num_training_iterations):
-                    if graph_method != 'vin_rk4_lr':
-                        np.random.shuffle(xvec)
+                    np.random.shuffle(xvec)
+                    np.random.shuffle(xvec_valid)
                     for sub_iter in range(Tot_iters):
                         input_batch = np.vstack(
                             [xnow[xvec[i] * num_nodes:xvec[i] * num_nodes + num_nodes] for i in
@@ -233,14 +233,14 @@ for model_type in model_types:
                             print('Iteration:{},Training Loss:{:.3g}'.format(iteration * Tot_iters + sub_iter, loss))
                             input_batch = np.vstack(
                                 [test_xnow[xvec_valid[i] * num_nodes:xvec_valid[i] * num_nodes + num_nodes] for i in
-                                 range(sub_iter * BS, (sub_iter + 1) * BS)])
+                                 range(0 * BS, (0 + 1) * BS)])
                             true_batch = np.vstack(
                                 [test_xnext[xvec_valid[i] * num_nodes:xvec_valid[i] * num_nodes + num_nodes] for i in
-                                 range(sub_iter * BS, (sub_iter + 1) * BS)])
+                                 range(0 * BS, (0 + 1) * BS)])
                             ks_true = np.vstack(
-                                [test_ks[xvec_valid[i]] for i in range(sub_iter * BS, (sub_iter + 1) * BS)])
+                                [test_ks[xvec_valid[i]] for i in range(0 * BS, (0 + 1) * BS)])
                             ms_true = np.vstack(
-                                [test_mass[xvec_valid[i]] for i in range(sub_iter * BS, (sub_iter + 1) * BS)])
+                                [test_mass[xvec_valid[i]] for i in range(0 * BS, (0 + 1) * BS)])
                             # t1_start = process_time()
                             loss = gm.valid_step(input_batch, true_batch, ks_true, ms_true)
                             print('Iteration:{},Validation Loss:{:.3g}'.format(iteration * Tot_iters + sub_iter, loss))
@@ -260,14 +260,14 @@ for model_type in model_types:
                 else:
                     saver.save(sess, data_dir + graph_method + str(sublr) + integ + fname)
 
-                for t_iters in range(n_test_traj):
-                    input_batch = test_xnow[num_nodes * t_iters * BS_test:num_nodes * t_iters * BS_test + num_nodes]
-                    true_batch = test_xnext[num_nodes * t_iters * BS_test:num_nodes * (t_iters + 1) * BS_test]
-                    error, _ = gm.test_step(input_batch, true_batch, np.reshape(test_ks[t_iters * BS_test], [1, -1]),
-                                            np.reshape(test_mass[t_iters * BS_test], [1, -1]), BS_test)
-                    error_collector[lr_index, gm_index, t_iters] = error
-                print('mean test error:{}'.format(error_collector[lr_index, :, :].mean(1)))
-                print('std test error:{}'.format(error_collector[lr_index, :, :].std(1)))
+                # for t_iters in range(n_test_traj):
+                #     input_batch = test_xnow[num_nodes * t_iters * BS_test:num_nodes * t_iters * BS_test + num_nodes]
+                #     true_batch = test_xnext[num_nodes * t_iters * BS_test:num_nodes * (t_iters + 1) * BS_test]
+                #     error, _ = gm.test_step(input_batch, true_batch, np.reshape(test_ks[t_iters * BS_test], [1, -1]),
+                #                             np.reshape(test_mass[t_iters * BS_test], [1, -1]), BS_test)
+                #     error_collector[lr_index, gm_index, t_iters] = error
+                # print('mean test error:{}'.format(error_collector[lr_index, :, :].mean(1)))
+                # print('std test error:{}'.format(error_collector[lr_index, :, :].std(1)))
             if noisy:
                 np.save(data_dir + 'graphic_collater_noisy' + '.npy', error_collector)
             else:
