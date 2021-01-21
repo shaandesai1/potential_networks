@@ -58,7 +58,7 @@ print_every = 1000
 
 hamiltonian_fn = get_hamiltonian(dataset_name)
 # model loop settings
-model_types = ['classic']
+model_types = ['classic','graphic']
 
 classic_methods = ['dn', 'hnn', 'pnn']
 graph_methods = ['dgn', 'hogn', 'pgn']
