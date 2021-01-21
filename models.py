@@ -64,7 +64,6 @@ def choose_integrator(method):
         return vi4
 
 
-
 def choose_integrator_nongraph(method):
     """
     returns integrator for dgn/hnn from utils
@@ -141,7 +140,7 @@ class nongraph_model(object):
         self.h2 = snt.Linear(output_size=200, use_bias=True, name='h2')
 
         if self.deriv_method == 'dn':
-            self.h3 = snt.Linear(output_size=self.spatial_dim * self.num_nodes, use_bias=True, name='h3')
+            self.h3 = snt.Linear(output_size=self.spatial_dim * self.num_nodes, use_bias=False, name='h3')
         else:
             self.h3 = snt.Linear(output_size=1, use_bias=False, name='h3')
 
@@ -153,36 +152,41 @@ class nongraph_model(object):
             self.h3
         ])
 
-        self.input_ph = tf.compat.v1.placeholder(tf.float32, shape=[self.BS, self.spatial_dim * self.num_nodes])
+        self.input_ph = tf.compat.v1.placeholder(tf.float32, shape=[None, self.spatial_dim * self.num_nodes])
         self.test_ph = tf.compat.v1.placeholder(tf.float32, shape=[1, self.spatial_dim * self.num_nodes])
-        self.ground_truth_ph = tf.compat.v1.placeholder(tf.float32, shape=[self.BS, self.spatial_dim * self.num_nodes])
+        self.ground_truth_ph = tf.compat.v1.placeholder(tf.float32, shape=[None, self.spatial_dim * self.num_nodes])
 
         integ = choose_integrator_nongraph(self.integ_method)
 
         if self.deriv_method == 'dn':
-            next_step = integ(self.deriv_fun_dn, self.input_ph, self.dt)
+            self.next_step = integ(self.deriv_fun_dn, self.input_ph, self.dt)
             self.test_next_step = integ(self.deriv_fun_dn, self.test_ph, self.dt)
 
         elif self.deriv_method == 'hnn':
-            next_step = integ(self.deriv_fun_hnn, self.input_ph, self.dt)
+            self.next_step = integ(self.deriv_fun_hnn, self.input_ph, self.dt)
             self.test_next_step = integ(self.deriv_fun_hnn, self.test_ph, self.dt)
 
         elif self.deriv_method == 'pnn':
-            next_step = integ(self.deriv_fun_pnn, self.input_ph, self.dt)
+            self.next_step = integ(self.deriv_fun_pnn, self.input_ph, self.dt)
             self.test_next_step = integ(self.deriv_fun_pnn, self.test_ph, self.dt)
 
         else:
             raise ValueError("the derivative generator is incorrect, should be dn,hnn or pn")
 
         if self.is_noisy:
-            self.loss_op_tr = -log_likelihood_y(next_step, self.ground_truth_ph, self.log_noise_var)
+            self.loss_op_tr = -log_likelihood_y(self.next_step, self.ground_truth_ph, self.log_noise_var)
         else:
-            self.loss_op_tr = create_loss_ops(next_step, self.ground_truth_ph)
+            self.loss_op_tr = self.create_loss_ops(self.next_step, self.ground_truth_ph)
 
-        global_step = tf.compat.v1.Variable(0, trainable=False)
-        rate = tf.compat.v1.train.exponential_decay(self.lr, global_step, 10000, 0.5, staircase=False)
-        optimizer = tf.compat.v1.train.AdamOptimizer(rate)
+        global_step = tf.Variable(0, trainable=False)
+        rate = self.lr  # tf.compat.v1.train.exponential_decay(self.lr, global_step, 10000, 0.5, staircase=False)
+        optimizer = tf.train.AdamOptimizer(rate)
         self.step_op = optimizer.minimize(self.loss_op_tr, global_step=global_step)
+
+    def create_loss_ops(self, true, predicted):
+        """MSE loss"""
+        loss_ops = tf.reduce_mean((true - predicted) ** 2)
+        return loss_ops
 
     def deriv_fun_dn(self, xt):
         output_nodes = self.mlp(xt)
@@ -215,19 +219,19 @@ class nongraph_model(object):
         train_feed = {self.input_ph: input_batch,
                       self.ground_truth_ph: true_batch,
                       }
-        train_ops = [self.loss_op_tr, self.step_op]
-        loss, _ = self.sess.run(train_ops, feed_dict=train_feed)
-        return loss
+        train_ops = [self.loss_op_tr, self.next_step, self.step_op]
+        loss, next_pred, _ = self.sess.run(train_ops, feed_dict=train_feed)
+        return loss, next_pred
 
     def valid_step(self, input_batch, true_batch):
 
         train_feed = {self.input_ph: input_batch,
                       self.ground_truth_ph: true_batch,
                       }
-        train_ops = self.loss_op_tr
-        loss = self.sess.run(train_ops, feed_dict=train_feed)
+        train_ops = [self.loss_op_tr, self.next_step]
+        loss, next_pred = self.sess.run(train_ops, feed_dict=train_feed)
 
-        return loss
+        return loss, next_pred
 
     def test_step(self, input_batch, true_batch, steps):
         # figures relegated to jupyter notebook infengine
@@ -244,7 +248,7 @@ class nongraph_model(object):
 
         error = mean_squared_error(preds[1:, :], true_batch[:, :])
 
-        return error, preds
+        return error, preds[1:, :]
 
 
 class graph_model(object):
@@ -308,41 +312,43 @@ class graph_model(object):
                                                       shape=[self.num_nodes * self.BS, self.spatial_dim])
         self.ks_ph = tf.compat.v1.placeholder(tf.float32, shape=[self.BS, self.num_nodes])
         self.ms_ph = tf.compat.v1.placeholder(tf.float32, shape=[self.BS, self.num_nodes])
+
         self.true_dq_ph = tf.compat.v1.placeholder(tf.float32, shape=[None, self.spatial_dim])
 
         self.test_graph_ph = tf.compat.v1.placeholder(tf.float32,
-                                                      shape=[self.num_nodes * self.BS_test, self.spatial_dim])
+                                                      shape=[self.num_nodes*self.BS_test, self.spatial_dim])
         self.test_ks_ph = tf.compat.v1.placeholder(tf.float32, shape=[self.BS_test, self.num_nodes])
         self.test_ms_ph = tf.compat.v1.placeholder(tf.float32, shape=[self.BS_test, self.num_nodes])
 
         integ = choose_integrator(self.integ_method)
 
+
         if self.deriv_method == 'dgn':
-            next_step = integ(self.deriv_fun_dgn, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
-                              self.num_nodes)
+            self.next_step = integ(self.deriv_fun_dgn, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
+                                   self.num_nodes)
             self.test_next_step = integ(self.deriv_fun_dgn, self.test_graph_ph, self.test_ks_ph, self.test_ms_ph,
                                         self.dt, 1, self.num_nodes)
         elif self.deriv_method == 'hogn':
-            next_step = integ(self.deriv_fun_hogn, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
-                              self.num_nodes)
+            self.next_step = integ(self.deriv_fun_hogn, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
+                                   self.num_nodes)
             self.test_next_step = integ(self.deriv_fun_hogn, self.test_graph_ph, self.test_ks_ph, self.test_ms_ph,
                                         self.dt, 1, self.num_nodes)
         elif self.deriv_method == 'pgn':
-            next_step = integ(self.deriv_fun_pgn, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
-                              self.num_nodes)
+            self.next_step = integ(self.deriv_fun_pgn, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
+                                   self.num_nodes)
             self.test_next_step = integ(self.deriv_fun_pgn, self.test_graph_ph, self.test_ks_ph, self.test_ms_ph,
                                         self.dt, 1, self.num_nodes)
         else:
             raise ValueError("the derivative generator is incorrect, should be dgn,hogn or pgn")
 
         if self.is_noisy:
-            self.loss_op_tr = -log_likelihood_y(next_step, self.true_dq_ph, self.log_noise_var)
+            self.loss_op_tr = -log_likelihood_y(self.next_step, self.true_dq_ph, self.log_noise_var)
         else:
-            self.loss_op_tr = create_loss_ops(self.true_dq_ph, next_step)
+            self.loss_op_tr = self.create_loss_ops(self.next_step, self.true_dq_ph)
 
-        global_step = tf.compat.v1.Variable(0, trainable=False)
-        rate = tf.compat.v1.train.exponential_decay(self.lr, global_step, 10000, 0.5, staircase=False)
-        optimizer = tf.compat.v1.train.AdamOptimizer(rate)
+        global_step = tf.Variable(0, trainable=False)
+        rate = self.lr  # tf.compat.v1.train.exponential_decay(self.lr, global_step, 10000, 0.5, staircase=False)
+        optimizer = tf.train.AdamOptimizer(rate)
         self.step_op = optimizer.minimize(self.loss_op_tr, global_step=global_step)
 
     def future_pred(self, integ, deriv_fun, state_init, ks, ms, dt, bs, num_nodes):
@@ -362,6 +368,11 @@ class graph_model(object):
 
         yhat = tf.concat(accum, 0)
         return yhat[num_nodes:]
+
+    def create_loss_ops(self, true, predicted):
+        """MSE loss"""
+        loss_ops = tf.reduce_mean((true - predicted) ** 2)
+        return loss_ops
 
     def base_graph(self, input_features, ks, ms, num_nodes):
         """builds graph for every group of particles"""
@@ -392,9 +403,9 @@ class graph_model(object):
 
     def deriv_fun_dgn(self, xt, ks, ms, bs, n_nodes):
         if self.activate_sub == True:
-            sub_vecs = [self.sub_mean(xt[n_nodes * i:n_nodes * (i + 1), :]) for i in range(bs)]
+            sub_vecs = self.sub_mean(xt,bs)
         else:
-            sub_vecs = [xt[n_nodes * i:n_nodes * (i + 1), :] for i in range(bs)]
+            sub_vecs =xt
 
         input_vec = tf.concat(sub_vecs, 0)
         vec2g = [self.base_graph(input_vec[n_nodes * i:n_nodes * (i + 1)], ks[i], ms[i], n_nodes) for i in range(bs)]
@@ -407,9 +418,9 @@ class graph_model(object):
 
     def deriv_fun_hogn(self, xt, ks, ms, bs, n_nodes):
         if self.activate_sub == True:
-            sub_vecs = [self.sub_mean(xt[n_nodes * i:n_nodes * (i + 1), :]) for i in range(bs)]
+            sub_vecs = self.sub_mean(xt, bs)
         else:
-            sub_vecs = [xt[n_nodes * i:n_nodes * (i + 1), :] for i in range(bs)]
+            sub_vecs = xt
 
         input_vec = tf.concat(sub_vecs, 0)
         with tf.GradientTape() as g:
@@ -428,28 +439,34 @@ class graph_model(object):
         dHdin = tf.concat([dqdt, dpdt], 1)
         return dHdin
 
-    def sub_mean(self, xt):
+    def sub_mean(self, xt,bs):
         init_x = xt[:, :int(self.spatial_dim / 2)]
-        means = tf.reduce_mean(init_x, 0)
-        new_means = tf.transpose(tf.reshape(tf.repeat(means, init_x.shape[0]), (int(self.spatial_dim / 2), -1)))
-        return tf.concat([init_x - new_means, xt[:, int(self.spatial_dim / 2):]], 1)
+        # means = tf.reduce_mean(init_x, 0)
+        # new_means = tf.transpose(tf.reshape(tf.repeat(means, init_x.shape[0]), (int(self.spatial_dim / 2), -1)))
+        # return tf.concat([init_x - new_means, xt[:, int(self.spatial_dim / 2):]], 1)
+        init_x = tf.reshape(init_x,(bs,self.num_nodes,int(self.spatial_dim/2)))
+        means = tf.reshape(tf.reduce_mean(init_x,1),(-1,int(self.spatial_dim/2)))
+        new_means = tf.repeat(means,self.num_nodes,0)
+        # print(new_means.shape)
+        return tf.concat([xt[:,:int(self.spatial_dim/2)]-new_means,xt[:,int(self.spatial_dim/2):]],1)
+
 
     def deriv_fun_pgn(self, xt, ks, ms, bs, n_nodes):
         if self.activate_sub == True:
-            sub_vecs = [self.sub_mean(xt[n_nodes * i:n_nodes * (i + 1), :]) for i in range(bs)]
+            sub_vecs = self.sub_mean(xt, bs)
         else:
-            sub_vecs = [xt[n_nodes * i:n_nodes * (i + 1), :] for i in range(bs)]
+            sub_vecs = xt
 
         input_vec = tf.concat(sub_vecs, 0)
-        q=input_vec[:,:int(self.spatial_dim/2)]
-        p=input_vec[:,int(self.spatial_dim/2):]
+        q = input_vec[:, :int(self.spatial_dim / 2)]
+        p = input_vec[:, int(self.spatial_dim / 2):]
 
         with tf.GradientTape() as g:
             g.watch(q)
-            if bs == 1:
-                vec2g = [self.base_graph(q[n_nodes * i:n_nodes * (i + 1)], ks, ms, n_nodes) for i in range(bs)]
-            else:
-                vec2g = [self.base_graph(q[n_nodes * i:n_nodes * (i + 1)], ks[i], ms[i], n_nodes) for i in
+            # if bs == 1:
+            #     vec2g = [self.base_graph(q[n_nodes * i:n_nodes * (i + 1)], ks, ms, n_nodes) for i in range(bs)]
+            # else:
+            vec2g = [self.base_graph(q[n_nodes * i:n_nodes * (i + 1)], ks[i], ms[i], n_nodes) for i in
                          range(bs)]
 
             vec2g = utils_tf.data_dicts_to_graphs_tuple(vec2g)
@@ -460,7 +477,7 @@ class graph_model(object):
 
         dUdq = g.gradient(global_vals, q)
 
-        return tf.concat([p,-dUdq],1)
+        return tf.concat([p, -dUdq], 1)
 
     def train_step(self, input_batch, true_batch, ks, mass):
 
@@ -468,21 +485,37 @@ class graph_model(object):
                       self.true_dq_ph: true_batch,
                       self.ks_ph: ks,
                       self.ms_ph: mass}
-        train_ops = [self.loss_op_tr, self.step_op]
-        loss, _ = self.sess.run(train_ops, feed_dict=train_feed)
+        train_ops = [self.loss_op_tr, self.next_step, self.step_op]
+        loss, next_pred, _ = self.sess.run(train_ops, feed_dict=train_feed)
 
-        return loss
+        return loss, next_pred
 
     def valid_step(self, input_batch, true_batch, ks, mass):
+        BS = int(len(input_batch)/self.num_nodes)
+        integ = choose_integrator(self.integ_method)
+        base_graph_tr = tf.compat.v1.placeholder(tf.float32, shape=[self.num_nodes * BS, self.spatial_dim])
+        ks_ph = tf.compat.v1.placeholder(tf.float32, shape=[BS, self.num_nodes])
+        ms_ph = tf.compat.v1.placeholder(tf.float32, shape=[BS, self.num_nodes])
+        true_dq_ph = tf.compat.v1.placeholder(tf.float32, shape=[None, self.spatial_dim])
 
-        train_feed = {self.base_graph_tr: input_batch,
-                      self.true_dq_ph: true_batch,
-                      self.ks_ph: ks,
-                      self.ms_ph: mass}
-        train_ops = self.loss_op_tr
-        loss = self.sess.run(train_ops, feed_dict=train_feed)
+        if self.deriv_method == 'dgn':
+            next_step = integ(self.deriv_fun_dgn, base_graph_tr, ks_ph, ms_ph, self.dt, BS,
+                                   self.num_nodes)
+        elif self.deriv_method == 'hogn':
+            next_step = integ(self.deriv_fun_hogn, base_graph_tr, ks_ph, ms_ph, self.dt, BS,
+                                   self.num_nodes)
+        elif self.deriv_method == 'pgn':
+            next_step = integ(self.deriv_fun_pgn, base_graph_tr, ks_ph, ms_ph, self.dt, BS,
+                                   self.num_nodes)
+        loss_op_tr = self.create_loss_ops(next_step, true_dq_ph)
+        train_feed = {base_graph_tr: input_batch,
+                      true_dq_ph: true_batch,
+                      ks_ph: ks,
+                      ms_ph: mass}
+        train_ops = [loss_op_tr, next_step]
+        loss, next_pred = self.sess.run(train_ops, feed_dict=train_feed)
 
-        return loss
+        return loss, next_pred
 
     def test_step(self, input_batch, true_batch, ks, mass, steps):
         # figures relegated to jupyter notebook infengine

@@ -275,3 +275,99 @@ def nownext(train_data, ntraj, num_nodes, T_max, dt, srate, spatial_dim=4, nogra
         true_dxnow = new_d  # tf.convert_to_tensor(np.float32(new_ls))
 
         return true_now, true_next, true_dxnow
+
+
+def get_hamiltonian(dataset_name):
+
+    if dataset_name == 'mass_spring':
+
+        def hamiltonian_fn(coords, model_type):
+            q, p = coords[:, 0], coords[:, 1]
+            K = (p ** 2) / 2
+            U = (q ** 2) / 2  # spring hamiltonian (linear oscillator)
+            return K, U
+        return hamiltonian_fn
+
+    elif dataset_name == 'pendulum':
+
+        def hamiltonian_fn(coords, model_type):
+            q, p = coords[:, 0], coords[:, 1]
+            U = 9.81 * (1 - np.cos(q))
+            K = + (p ** 2) / 2  # pendulum hamiltonian
+            return K, U
+        return hamiltonian_fn
+
+    elif dataset_name == 'n_grav':
+
+        def hamiltonian_fn(vec, model_type):
+            m = [1, 1]
+            num_particles = 2
+            if model_type == 'classic':
+                x = vec[:, :num_particles * 2]
+                v = vec[:, 2 * num_particles:]
+                BS = len(x)
+            else:
+                BS = int(len(vec)/num_particles)
+            #         print(x.shape)
+            uvals = []
+            #         print(vec.shape)
+            kvals = []
+            for qq in range(BS):
+                if model_type == 'classic':
+                    xs = x.reshape(-1, 2)[qq * 2:(qq + 1) * 2, :2]
+                    vs = v.reshape(-1, 2)[qq * 2:(qq + 1) * 2, 2:]
+                else:
+                    xs = vec[qq * 2:(qq + 1) * 2, :2]
+                    vs = vec[qq * 2:(qq + 1) * 2, 2:]
+
+                #             print(x.shape)
+                U1 = 0
+                K = 0
+
+                for i in range(num_particles):
+                    for j in range(i + 1, num_particles):
+                        r = np.linalg.norm(xs[i] - xs[j])
+                        U1 -= m[i] * m[j] / r
+
+                    K += 0.5 * m[i] * ((vs[i] ** 2).sum())
+                # K2 = 0.5*m[1]*((v2**2).sum())
+                # K = K + K1 + K2
+                uvals.append(U1)
+                kvals.append(K)
+            return np.array(kvals), np.array(uvals)
+        return hamiltonian_fn
+    elif dataset_name == 'n_spring':
+
+        def hamiltonian_fn(vec, model_type, num_particles=5, m=[1, 1, 1, 1, 1], k=[1, 1, 1, 1, 1]):
+
+            if model_type == 'classic':
+                x = vec[:, :num_particles * 2]
+                v = vec[:, 2 * num_particles:]
+                BS = len(x)
+            else:
+                BS = int(len(vec) / num_particles)
+            uvals = []
+            kvals = []
+            for qq in range(BS):
+                if model_type == 'classic':
+                    xs = x.reshape(-1, 2)[qq * num_particles:(qq + 1) * num_particles, :2]
+                    vs = v.reshape(-1, 2)[qq * num_particles:(qq + 1) * num_particles, 2:]
+                else:
+                    xs = vec[qq * num_particles:(qq + 1) * num_particles, :2]
+                    vs = vec[qq * num_particles:(qq + 1) * num_particles, 2:]
+
+                #             print(xs.shape)
+                U1 = 0
+                K = 0
+                for i in range(num_particles):
+                    for j in range(i + 1, num_particles):
+                        U1 += .5 * k[i] * k[j] * ((xs[i] - xs[j]) ** 2).sum()
+                    K += 0.5 * ((vs[i] ** 2).sum()) / m[i]
+                uvals.append(U1)
+                kvals.append(K)
+
+            return np.array(kvals), np.array(uvals)
+
+        return hamiltonian_fn
+    else:
+        raise ValueError("The Hamiltonian does not exist")

@@ -509,10 +509,8 @@ def pendulum(expt_name, num_samples, num_particles, T_max, dt, srate, noise_std,
         # get initial state
         if y0 is None:
             y0 = np.random.rand(2) * 2. - 1
-            print(y0)
         if radius is None:
             radius = np.random.rand() + 1.3  # sample a range of radii
-            print(radius)
         y0 = y0 / np.sqrt((y0 ** 2).sum()) * radius  ## set the appropriate radius
 
         if integ_type == 'vi':
