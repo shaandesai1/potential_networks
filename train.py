@@ -319,7 +319,7 @@ for model_type in model_types:
                     energy_error = mean_squared_error(np.sum(hp, 0), np.sum(hp_gt, 0))
                     test_std = ((yhat - true_batch) ** 2).std()
                     test_energy_std = ((np.sum(hp, 0) - np.sum(hp_gt, 0)) ** 2).std()
-                    df_all.loc[len(df_all)] = [graphic_method, model_type, t_iters,
+                    df_all.loc[len(df_all)] = [graph_method, model_type, t_iters,
                                                train_loss, train_std, train_energy_error, train_energy_std,
                                                valid_loss, valid_std, valid_energy_error, valid_energy_std,
                                                state_error, test_std, energy_error, test_energy_std]
