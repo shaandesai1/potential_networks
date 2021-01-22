@@ -58,7 +58,7 @@ print_every = 1000
 
 hamiltonian_fn = get_hamiltonian(dataset_name)
 # model loop settings
-model_types = ['classic','graphic']
+model_types = ['graphic']
 
 classic_methods = ['dn', 'hnn', 'pnn']
 graph_methods = ['dgn', 'hogn', 'pgn']
@@ -289,14 +289,14 @@ for model_type in model_types:
 
                 print('Iteration:{},Training Loss:{:.3g}'.format(iteration * Tot_iters + sub_iter, loss))
 
-                train_loss, train_pred_state = gm.valid_step(xnow, xnext, newks, newmass)
+                train_loss, train_pred_state = gm.valid_step(xnow, xnext, newks.reshape(-1,num_nodes), newmass.reshape(-1,num_nodes))
                 train_std = ((train_pred_state - xnext) ** 2).std()
                 hp = hamiltonian_fn(train_pred_state, model_type)
                 hp_gt = hamiltonian_fn(xnext, model_type)
                 train_energy_error = mean_squared_error(np.sum(hp, 0), np.sum(hp_gt, 0))
                 train_energy_std = ((np.sum(hp, 0) - np.sum(hp_gt, 0)) ** 2).std()
 
-                valid_loss, valid_pred_state = gm.valid_step(test_xnow, test_xnext, test_ks, test_mass)
+                valid_loss, valid_pred_state = gm.valid_step(test_xnow, test_xnext, test_ks.reshape(-1,num_nodes), test_mass.reshape(-1,num_nodes))
                 valid_std = ((valid_pred_state - test_xnext) ** 2).std()
                 hp = hamiltonian_fn(valid_pred_state, model_type)
                 hp_gt = hamiltonian_fn(test_xnext, model_type)

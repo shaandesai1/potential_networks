@@ -33,7 +33,7 @@ def rk2(dx_dt_fn, x_t, ks, ms, dt, bs, nodes):
     return x_tp1
 
 
-def vi1ng(dx_dt_fn, x_t, dt):
+def vi1ng(dx_dt_fn, x_t, ):
     subdim = int(x_t.shape[1] // 2)
     q = x_t[:subdim]
     p = x_t[subdim:]
@@ -44,20 +44,23 @@ def vi1ng(dx_dt_fn, x_t, dt):
     return tf.concat([q1, p1], 1)
 
 
-def vi2(dx_dt_fn, x_t, dt):
+def vi2(dx_dt_fn, x_t,  ks, ms, dt, bs, nodes):
     subdim = int(x_t.shape[1] // 2)
     q = x_t[:, :subdim]
     p = x_t[:, subdim:]
+    c1 = 0
+    c2 = 1
+    d1 = d2 = 0.5
 
-    q1 = q + dt * 0.5 * dx_dt_fn(tf.concat([q, p], 1), ks, ms, bs, nodes)[:,:subdim]
-    p1 = p + dt * 0 * dx_dt_fn(tf.concat([q1, p], 1), ks, ms, bs, nodes)[:, subdim:]
-    q2 = q1 + dt * 0.5 * dx_dt_fn(tf.concat([q1, p1], 1), ks, ms, bs, nodes)[:,:subdim]
-    p2 = p1 + dt * dx_dt_fn(tf.concat([q2, p1], 1), ks, ms, bs, nodes)[:, subdim:]
+    q1 = q + dt * c1 * dx_dt_fn(tf.concat([q, p], 1), ks, ms, bs, nodes)[:,:subdim]
+    p1 = p + dt * d1 * dx_dt_fn(tf.concat([q1, p], 1), ks, ms, bs, nodes)[:, subdim:]
+    q2 = q1 + dt * c2 * dx_dt_fn(tf.concat([q1, p1], 1), ks, ms, bs, nodes)[:,:subdim]
+    p2 = p1 + dt *d2* dx_dt_fn(tf.concat([q2, p1], 1), ks, ms, bs, nodes)[:, subdim:]
 
     return tf.concat([q2, p2], 1)
 
 
-def vi3(dx_dt_fn, x_t, dt):
+def vi3(dx_dt_fn, x_t,  ks, ms, dt, bs, nodes):
     subdim = int(x_t.shape[1] // 2)
     q = x_t[:, :subdim]
     p = x_t[:, subdim:]
@@ -141,11 +144,14 @@ def vi2ng(dx_dt_fn, x_t, dt):
     subdim = int(x_t.shape[1] // 2)
     q = x_t[:, :subdim]
     p = x_t[:, subdim:]
+    c1 = 0
+    c2 = 1
+    d1=d2=0.5
 
-    q1 = q + dt * 0.5 * dx_dt_fn(tf.concat([q, p], 1))[:, :subdim]
-    p1 = p + dt * 0 * dx_dt_fn(tf.concat([q1, p], 1))[:, subdim:]
-    q2 = q1 + dt * 0.5 * dx_dt_fn(tf.concat([q1, p1], 1))[:, :subdim]
-    p2 = p1 + dt * dx_dt_fn(tf.concat([q2, p1], 1))[:, subdim:]
+    q1 = q + dt * c1 * dx_dt_fn(tf.concat([q, p], 1))[:, :subdim]
+    p1 = p + dt * d1 * dx_dt_fn(tf.concat([q1, p], 1))[:, subdim:]
+    q2 = q1 + dt * c2 * dx_dt_fn(tf.concat([q1, p1], 1))[:, :subdim]
+    p2 = p1 + dt * d2*dx_dt_fn(tf.concat([q2, p1], 1))[:, subdim:]
 
     return tf.concat([q2, p2], 1)
 

@@ -51,14 +51,14 @@ def choose_integrator(method):
     elif method == 'rk4':
         return rk4
 
-    # elif method == 'vi1':
-    #     return vi1
-    #
-    # elif method == 'vi2':
-    #     return vi2
-    #
-    # elif method == 'vi3':
-    #     return vi3
+    elif method == 'vi1':
+        return vi1
+
+    elif method == 'vi2':
+        return vi2
+
+    elif method == 'vi3':
+        return vi3
 
     elif method == 'vi4':
         return vi4
@@ -303,9 +303,9 @@ class graph_model(object):
         self.out_to_node = snt.Linear(output_size=self.spatial_dim, use_bias=True, name='out_to_node')
 
         self.graph_network = modules.GraphNetwork(
-            edge_model_fn=lambda: snt.nets.MLP([32, 32], activation=tf.nn.softplus, activate_final=True),
-            node_model_fn=lambda: snt.nets.MLP([32, 32], activation=tf.nn.softplus, activate_final=True),
-            global_model_fn=lambda: snt.nets.MLP([32, 32], activation=tf.nn.softplus, activate_final=True),
+            edge_model_fn=lambda: snt.nets.MLP([20, 20], activation=tf.nn.softplus, activate_final=True),
+            node_model_fn=lambda: snt.nets.MLP([20, 20], activation=tf.nn.softplus, activate_final=True),
+            global_model_fn=lambda: snt.nets.MLP([20, 20], activation=tf.nn.softplus, activate_final=True),
         )
 
         self.base_graph_tr = tf.compat.v1.placeholder(tf.float32,
