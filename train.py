@@ -49,7 +49,7 @@ expt_name = args.save_name
 fname = args.fname
 # dataset preprocessing
 train_data = get_dataset(dataset_name, expt_name, num_trajectories, num_nodes, T_max, dt, srate, args.noise, 0)
-valid_data = get_dataset(dataset_name, expt_name, n_test_traj, num_nodes, T_max, dt, srate, 0, 11)
+valid_data = get_dataset(dataset_name, expt_name, n_test_traj, num_nodes, T_max, dt, srate, 0, 1)
 BS = 200
 BS_test = num_samples_per_traj
 # dimension of a single particle, if 1D, spdim is 2
@@ -58,7 +58,7 @@ print_every = 1000
 
 hamiltonian_fn = get_hamiltonian(dataset_name)
 # model loop settings
-model_types = ['classic','graphic']
+model_types = ['classic']
 
 classic_methods = ['dn', 'hnn', 'pnn']
 graph_methods = ['dgn', 'hogn', 'pgn']

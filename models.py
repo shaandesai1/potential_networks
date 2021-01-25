@@ -8,6 +8,7 @@ from graph_nets import modules
 from graph_nets import utils_tf
 import sonnet as snt
 import tensorflow as tf
+import tensorflow_addons as tfa
 from utils import *
 import numpy as np
 import matplotlib.pyplot as plt
@@ -15,6 +16,7 @@ from sklearn.metrics import mean_squared_error
 import tensorflow.keras as tfk
 from tensorflow_probability import distributions as tfd
 import os
+
 
 
 def create_loss_ops(true, predicted):
@@ -180,7 +182,8 @@ class nongraph_model(object):
 
         global_step = tf.Variable(0, trainable=False)
         rate = self.lr  # tf.compat.v1.train.exponential_decay(self.lr, global_step, 10000, 0.5, staircase=False)
-        optimizer = tf.train.AdamOptimizer(rate)
+        # tf.train.AdamW()
+        optimizer = tfa.optimizers.AdamW(learning_rate=rate,weight_decay=1e-4)#tf.train.AdamOptimizer(rate)
         self.step_op = optimizer.minimize(self.loss_op_tr, global_step=global_step)
 
     def create_loss_ops(self, true, predicted):
@@ -281,13 +284,13 @@ class graph_model(object):
         self.lr = lr
         self.spatial_dim = spatial_dim
         self.dt = dt
-        self.eflag = eflag
+        self.eflag = False
         self.is_noisy = noisy
         self.log_noise_var = None
         if self.num_nodes == 1:
             self.activate_sub = False
         else:
-            self.activate_sub = True
+            self.activate_sub = False
         self.output_plots = False
         self._build_net()
 
@@ -303,9 +306,9 @@ class graph_model(object):
         self.out_to_node = snt.Linear(output_size=self.spatial_dim, use_bias=True, name='out_to_node')
 
         self.graph_network = modules.GraphNetwork(
-            edge_model_fn=lambda: snt.nets.MLP([20, 20], activation=tf.nn.softplus, activate_final=True),
-            node_model_fn=lambda: snt.nets.MLP([20, 20], activation=tf.nn.softplus, activate_final=True),
-            global_model_fn=lambda: snt.nets.MLP([20, 20], activation=tf.nn.softplus, activate_final=True),
+            edge_model_fn=lambda: snt.nets.MLP([32, 32], activation=tf.nn.softplus, activate_final=True),
+            node_model_fn=lambda: snt.nets.MLP([32, 32], activation=tf.nn.softplus, activate_final=True),
+            global_model_fn=lambda: snt.nets.MLP([32, 32], activation=tf.nn.softplus, activate_final=True),
         )
 
         self.base_graph_tr = tf.compat.v1.placeholder(tf.float32,
@@ -348,7 +351,7 @@ class graph_model(object):
 
         global_step = tf.Variable(0, trainable=False)
         rate = self.lr  # tf.compat.v1.train.exponential_decay(self.lr, global_step, 10000, 0.5, staircase=False)
-        optimizer = tf.train.AdamOptimizer(rate)
+        optimizer = tf.keras.optimizers.AdamW(learning_rate=rate,weight_decay=1e-4)#tf.train.AdamOptimizer(rate)
         self.step_op = optimizer.minimize(self.loss_op_tr, global_step=global_step)
 
     def future_pred(self, integ, deriv_fun, state_init, ks, ms, dt, bs, num_nodes):

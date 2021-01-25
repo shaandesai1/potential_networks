@@ -581,8 +581,12 @@ def pendulum(expt_name, num_samples, num_particles, T_max, dt, srate, noise_std,
 
 
 if __name__ == "__main__":
-    d = get_dataset('n_grav', 'temp', 1, 1, 100.1, 0.1, 0.1, pixels=True)
+    import matplotlib.pyplot as plt
+    d = get_dataset('n_spring', 'temp', 1, 5, 4.1, 0.1, 0.1, pixels=True)
     plt.scatter(d['x'][:, 0], d['x'][:, 1])
     plt.scatter(d['x'][:, 2], d['x'][:, 3])
+    plt.scatter(d['x'][:, 4], d['x'][:, 5])
+    plt.scatter(d['x'][:, 6], d['x'][:, 7])
+
     plt.show()
 
