@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
-
+import torch
 ### GRAPH BASED INTEGRATORS
 def rk4(dx_dt_fn, x_t, ks, ms, dt, bs, nodes):
     k1 = dt * dx_dt_fn(x_t, ks, ms, bs, nodes)
@@ -101,6 +101,7 @@ def vi4(dx_dt_fn, x_t, ks, ms, dt, bs, nodes):
 ##### NON-GRAPH BASED INTEGRATORS
 def rk4ng(dx_dt_fn, x_t, dt):
     k1 = dt * dx_dt_fn(x_t)
+    # print(x_t + (1 / 2) * k1)
     k2 = dt * dx_dt_fn(x_t + (1 / 2) * k1)
     k3 = dt * dx_dt_fn(x_t + (1 / 2) * k2)
     k4 = dt * dx_dt_fn(x_t + k3)
@@ -148,12 +149,12 @@ def vi2ng(dx_dt_fn, x_t, dt):
     c2 = 1
     d1=d2=0.5
 
-    q1 = q + dt * c1 * dx_dt_fn(tf.concat([q, p], 1))[:, :subdim]
-    p1 = p + dt * d1 * dx_dt_fn(tf.concat([q1, p], 1))[:, subdim:]
-    q2 = q1 + dt * c2 * dx_dt_fn(tf.concat([q1, p1], 1))[:, :subdim]
-    p2 = p1 + dt * d2*dx_dt_fn(tf.concat([q2, p1], 1))[:, subdim:]
+    q1 = q + dt * c1 * dx_dt_fn(torch.cat([q, p], 1))[:, :subdim]
+    p1 = p + dt * d1 * dx_dt_fn(torch.cat([q1, p], 1))[:, subdim:]
+    q2 = q1 + dt * c2 * dx_dt_fn(torch.cat([q1, p1], 1))[:, :subdim]
+    p2 = p1 + dt * d2*dx_dt_fn(torch.cat([q2, p1], 1))[:, subdim:]
 
-    return tf.concat([q2, p2], 1)
+    return torch.cat([q2, p2], 1)
 
 
 def vi3ng(dx_dt_fn, x_t, dt):
@@ -183,15 +184,15 @@ def vi4ng(dx_dt_fn, x_t, dt):
     c1 = c4 = 1. / (2 * (2 - 2 ** (1. / 3)))
     c2 = c3 = (1 - 2 ** (1. / 3)) / (2 * (2 - 2 ** (1. / 3)))
 
-    q1 = q + dt * c1 * dx_dt_fn(tf.concat([q, p], 1))[:, :subdim]
-    p1 = p + dt * d1 * dx_dt_fn(tf.concat([q1, p], 1))[:, subdim:]
-    q2 = q1 + dt * c2 * dx_dt_fn(tf.concat([q1, p1], 1))[:, :subdim]
-    p2 = p1 + dt * d2 * dx_dt_fn(tf.concat([q2, p1], 1))[:, subdim:]
-    q3 = q2 + dt * c3 * dx_dt_fn(tf.concat([q2, p2], 1))[:, :subdim]
-    p3 = p2 + dt * d3 * dx_dt_fn(tf.concat([q3, p2], 1))[:, subdim:]
-    q4 = q3 + dt * c4 * dx_dt_fn(tf.concat([q3, p3], 1))[:, :subdim]
-    p4 = p3 + dt * d4 * dx_dt_fn(tf.concat([q4, p3], 1))[:, subdim:]
-    return tf.concat([q4, p4], 1)
+    q1 = q + dt * c1 * dx_dt_fn(torch.cat([q, p], 1))[:, :subdim]
+    p1 = p + dt * d1 * dx_dt_fn(torch.cat([q1, p], 1))[:, subdim:]
+    q2 = q1 + dt * c2 * dx_dt_fn(torch.cat([q1, p1], 1))[:, :subdim]
+    p2 = p1 + dt * d2 * dx_dt_fn(torch.cat([q2, p1], 1))[:, subdim:]
+    q3 = q2 + dt * c3 * dx_dt_fn(torch.cat([q2, p2], 1))[:, :subdim]
+    p3 = p2 + dt * d3 * dx_dt_fn(torch.cat([q3, p2], 1))[:, subdim:]
+    q4 = q3 + dt * c4 * dx_dt_fn(torch.cat([q3, p3], 1))[:, :subdim]
+    p4 = p3 + dt * d4 * dx_dt_fn(torch.cat([q4, p3], 1))[:, subdim:]
+    return torch.cat([q4, p4], 1)
 
 
 def create_loss_ops(true, predicted):

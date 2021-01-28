@@ -15,6 +15,7 @@ import numpy as np
 
 def get_dataset(data_name, expt_name, num_samples, num_particles, T_max, dt, srate, noise_std=0, seed=0, pixels=False):
     """
+    dataset_name, expt_name, n_test_traj, num_nodes, T_max, dt, srate, 0, 11
     Args:
         data_name: str, from list 'mass_spring','n_spring','n_grav','pendulum','dpendulum','heinon'
         expt_name: directory to save dataset
@@ -235,7 +236,7 @@ def mass_spring(name, num_trajectories, NUM_PARTS, T_max, dt, sub_sample_rate, n
 
         spring_ivp = rk(lambda t, y: dynamics_fn(t, y), t_span, y0,
                         t_eval=np.arange(0, t_span[1], timescale),
-                        rtol=1e-12, atosl=1e-12, method='DOP853')
+                        )
 
         accum = spring_ivp.y.T
         ssr = int(ssr / timescale)
@@ -443,46 +444,6 @@ def grav_n(expt_name, num_samples, num_particles, T_max, dt, srate, noise_std, s
 
 
 def pendulum(expt_name, num_samples, num_particles, T_max, dt, srate, noise_std, seed,integ_type='rk8'):
-    def single_step(dx_dt_fn, x_t, t, dt):
-        #         k1 = dt * dx_dt_fn(x_t,t)
-        #         k2 = dt * dx_dt_fn(x_t + (1. / 2) * k1,t+.5*dt)
-        #         k3 = dt * dx_dt_fn(x_t + (1. / 2) * k2,t+.5*dt)
-        #         k4 = dt * dx_dt_fn(x_t + k3,t+dt)
-        #         x_tp1 = x_t + (1. / 6) * (k1 + k2 * 2. + k3 * 2. + k4)
-        #         return x_tp1
-
-        w0 = -(2 ** (1 / 3)) / (2 - 2 ** (1 / 3))
-        w1 = 1 / (2 - 2 ** (1 / 3))
-        c1 = c4 = w1 / 2
-        c2 = c3 = (w0 + w1) / 2
-        d1 = d3 = w1
-        d2 = w0
-
-        q = x_t[0]
-        p = x_t[1]
-
-        q1 = q + c1 * dt * p
-        p1 = p + dt * d1 * (dx_dt_fn(np.array([q1, p]), t))[1]
-        q2 = q1 + c2 * dt * p1
-        p2 = p1 + dt * d2 * (dx_dt_fn(np.array([q2, p1]), t))[1]
-        q3 = q2 + c3 * dt * p2
-        p3 = p2 + dt * d3 * (dx_dt_fn(np.array([q3, p2]), t))[1]
-
-        q_next = q3 + c4 * dt * p3
-        p_next = p3
-
-        return np.array([q_next, p_next])
-
-    def rk(dx_dt_fn, t, y0, dt):
-
-        store = []
-        store.append(y0)
-        for i in range(len(t)):
-            ynext = single_step(dx_dt_fn, y0, t[i], dt)
-            store.append(ynext)
-            y0 = ynext
-
-        return store[:-1]
 
     """simple pendulum"""
 
@@ -490,12 +451,6 @@ def pendulum(expt_name, num_samples, num_particles, T_max, dt, srate, noise_std,
         q, p = np.split(coords, 2)
         H = 9.81 * (1 - cos(q)) + (p ** 2) / 2  # pendulum hamiltonian
         return H
-
-    def dynamics_fn(coords, t):
-        dcoords = autograd.grad(hamiltonian_fn)(coords)
-        dqdt, dpdt = np.split(dcoords, 2)
-        S = np.concatenate([dpdt, -dqdt], axis=-1)
-        return S
 
     def dynamics_fn2(t,coords):
         dcoords = autograd.grad(hamiltonian_fn)(coords)
@@ -513,38 +468,14 @@ def pendulum(expt_name, num_samples, num_particles, T_max, dt, srate, noise_std,
             radius = np.random.rand() + 1.3  # sample a range of radii
         y0 = y0 / np.sqrt((y0 ** 2).sum()) * radius  ## set the appropriate radius
 
-        if integ_type == 'vi':
-            spring_ivp = rk(dynamics_fn, np.arange(0, T_max, dt), y0, timescale)
-            spring_ivp = np.array(spring_ivp)
-            # print(spring_ivp.shape)
-            q, p = spring_ivp[:, 0], spring_ivp[:, 1]
-            dydt = [dynamics_fn(y, None) for y in spring_ivp]
-            dydt = np.stack(dydt).T
-            dqdt, dpdt = np.split(dydt, 2)
-        elif integ_type == 'vi8':
+        spring_ivp = rk(lambda t, y: dynamics_fn2(t, y), t_span, y0,
+                        t_eval=np.arange(0, t_span[1], timescale),
+                        )
 
-            def f1(v, u, p, t):
-                # print(u, v)
-                return -sin(u) * 9.81
-
-            def f2(v, u, p, t):
-                return v
-
-            # 0.37718594 1.54554478
-            prob = de.DynamicalODEProblem(f1, f2, y0[1], y0[0], (0., T_max))
-            sol = de.solve(prob, de.McAte8(), dt=dt,abstol=1e-10,reltol=1e-10)
-            spring_ivp = np.flip(np.array(sol.u), 1)[:-2]
-            q, p = spring_ivp[:,0],spring_ivp[:,1]
-            dydt = [dynamics_fn(y,None) for y in spring_ivp]
-            dydt = np.stack(dydt).T
-            dqdt, dpdt = np.split(dydt, 2)
-
-        else:
-            spring_ivp = solve_ivp(fun=lambda t, y: dynamics_fn2(t, y), t_span=t_span, y0=y0,rtol=1e-12,atol=1e-12, t_eval=t_eval,method='DOP853', **kwargs)
-            q, p = spring_ivp['y'][0], spring_ivp['y'][1]
-            dydt = [dynamics_fn2(None,y) for y in spring_ivp['y'].T]
-            dydt = np.stack(dydt).T
-            dqdt, dpdt = np.split(dydt, 2)
+        q, p = spring_ivp['y'][0], spring_ivp['y'][1]
+        dydt = [dynamics_fn2(None,y) for y in spring_ivp['y'].T]
+        dydt = np.stack(dydt).T
+        dqdt, dpdt = np.split(dydt, 2)
 
         # add noise
         q += np.random.randn(*q.shape) * noise_std
@@ -582,11 +513,11 @@ def pendulum(expt_name, num_samples, num_particles, T_max, dt, srate, noise_std,
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-    d = get_dataset('n_spring', 'temp', 1, 5, 4.1, 0.1, 0.1, pixels=True)
+    d = get_dataset('pendulum', 'temp', 5, 1, 6.05, 0.05, 0.05)
+    #d1 = get_dataset('mass_spring', 'temp', 25, 1,6.1, 0.1, 0.1,seed=11)
+
     plt.scatter(d['x'][:, 0], d['x'][:, 1])
-    plt.scatter(d['x'][:, 2], d['x'][:, 3])
-    plt.scatter(d['x'][:, 4], d['x'][:, 5])
-    plt.scatter(d['x'][:, 6], d['x'][:, 7])
+   # plt.scatter(d1['x'][:, 0], d1['x'][:, 1])
 
     plt.show()
 

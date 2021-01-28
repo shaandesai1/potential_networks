@@ -5,7 +5,7 @@ Code to produce the results obtained in VIGN: Variational Integrator Graph Netwo
 """
 
 from data_builder import *
-from models import *
+from models_long import *
 from utils import *
 from tensorboardX import SummaryWriter
 import argparse
@@ -50,11 +50,11 @@ fname = args.fname
 # dataset preprocessing
 train_data = get_dataset(dataset_name, expt_name, num_trajectories, num_nodes, T_max, dt, srate, args.noise, 0)
 valid_data = get_dataset(dataset_name, expt_name, n_test_traj, num_nodes, T_max, dt, srate, 0, 11)
-BS = 200
+BS = num_samples_per_traj
 BS_test = num_samples_per_traj
 # dimension of a single particle, if 1D, spdim is 2
 spdim = int(train_data['x'][0].shape[0] / num_nodes)
-print_every = 1000
+print_every = 10
 
 hamiltonian_fn = get_hamiltonian(dataset_name)
 # model loop settings
@@ -122,34 +122,31 @@ for model_type in model_types:
                 gm = nongraph_model(sess, classic_method, num_nodes, BS, integ, expt_name, sublr, noisy, spdim, srate)
                 sess.run(tf.global_variables_initializer())
                 saver = tf.train.Saver()
-                xvec = np.arange(0, tot_train_samples, 1, dtype=int)
+                xvec = np.arange(0, num_trajectories, 1, dtype=int)
                 xvec_valid = np.arange(0, tot_train_samples_valid, 1, dtype=int)
-                for iteration in range(num_training_iterations):
+                for iteration in range(iters):
                     np.random.shuffle(xvec)
-                    np.random.shuffle(xvec_valid)
-                    for sub_iter in range(Tot_iters):
-                        input_batch = np.vstack(
-                            [xnow[xvec[i]] for i in
-                             range(sub_iter * BS, (sub_iter + 1) * BS)])
-                        true_batch = np.vstack(
-                            [xnext[xvec[i]] for i in
-                             range(sub_iter * BS, (sub_iter + 1) * BS)])
+                    # np.random.shuffle(xvec_valid)
+                    for sub_iter in range(num_trajectories):
+                        index0 = int(xvec[sub_iter] * BS)
+                        input_batch = xnow[index0:index0+BS]
+                        true_batch = xnext[index0:index0+BS]
                         # batch_masses = np.vstack([newmass[xvec[i]]] for i in range(sub_iter*BS,(sub_iter+1)*BS))
                         loss, _ = gm.train_step(input_batch, true_batch)
                         # t1_end = process_time()
-                        writer.add_scalar('train_loss', loss, iteration * Tot_iters + sub_iter)
-                        if ((iteration * Tot_iters + sub_iter) % print_every == 0):
-                            print('Iteration:{},Training Loss:{:.3g}'.format(iteration * Tot_iters + sub_iter, loss))
-                            input_batch = np.vstack(
-                                [test_xnow[xvec_valid[i]] for i in
-                                 range(0 * BS, (0 + 1) * BS)])
-                            true_batch = np.vstack(
-                                [test_xnext[xvec_valid[i]] for i in
-                                 range(0 * BS, (0 + 1) * BS)])
-                            # t1_start = process_time()
-                            loss, _ = gm.valid_step(input_batch, true_batch)
-                            print('Iteration:{},Validation Loss:{:.3g}'.format(iteration * Tot_iters + sub_iter, loss))
-                            writer.add_scalar('valid_loss', loss, iteration * Tot_iters + sub_iter)
+                        # writer.add_scalar('train_loss', loss, iteration * Tot_iters + sub_iter)
+                        if ((iteration  ) % print_every == 0):
+                            print('Iteration:{},Training Loss:{:.3g}'.format(iteration  , loss))
+                            # input_batch = np.vstack(
+                            #     [test_xnow[xvec_valid[i]] for i in
+                            #      range(0 * BS, (0 + 1) * BS)])
+                            # true_batch = np.vstack(
+                            #     [test_xnext[xvec_valid[i]] for i in
+                            #      range(0 * BS, (0 + 1) * BS)])
+                            # # t1_start = process_time()
+                            # loss, _ = gm.valid_step(input_batch, true_batch)
+                            # print('Iteration:{},Validation Loss:{:.3g}'.format(iteration * Tot_iters + sub_iter, loss))
+                            # writer.add_scalar('valid_loss', loss, iteration * Tot_iters + sub_iter)
 
                             # print('Time:{}'.format(t1_end - t1_start))
                             # saves model every 1000 iters (I/O slow)
@@ -158,27 +155,27 @@ for model_type in model_types:
                             # else:
                             #     saver.save(sess, data_dir + graph_method + str(sublr) + integ)
 
-                train_loss, train_pred_state = gm.valid_step(xnow, xnext)
-                train_std = ((train_pred_state - xnext) ** 2).std()
-                hp = hamiltonian_fn(train_pred_state, model_type)
-                hp_gt = hamiltonian_fn(xnext, model_type)
-                train_energy_error = mean_squared_error(np.sum(hp, 0), np.sum(hp_gt, 0))
-                train_energy_std = ((np.sum(hp, 0) - np.sum(hp_gt, 0)) ** 2).std()
+                # train_loss, train_pred_state = gm.valid_step(xnow, xnext)
+                # train_std = ((train_pred_state - xnext) ** 2).std()
+                # hp = hamiltonian_fn(train_pred_state, model_type)
+                # hp_gt = hamiltonian_fn(xnext, model_type)
+                # train_energy_error = mean_squared_error(np.sum(hp, 0), np.sum(hp_gt, 0))
+                # train_energy_std = ((np.sum(hp, 0) - np.sum(hp_gt, 0)) ** 2).std()
+                #
+                # valid_loss, valid_pred_state = gm.valid_step(test_xnow, test_xnext)
+                # valid_std = ((valid_pred_state - test_xnext) ** 2).std()
+                # hp = hamiltonian_fn(valid_pred_state, model_type)
+                # hp_gt = hamiltonian_fn(test_xnext, model_type)
+                # valid_energy_error = mean_squared_error(np.sum(hp, 0), np.sum(hp_gt, 0))
+                # valid_energy_std = ((np.sum(hp, 0) - np.sum(hp_gt, 0)) ** 2).std()
 
-                valid_loss, valid_pred_state = gm.valid_step(test_xnow, test_xnext)
-                valid_std = ((valid_pred_state - test_xnext) ** 2).std()
-                hp = hamiltonian_fn(valid_pred_state, model_type)
-                hp_gt = hamiltonian_fn(test_xnext, model_type)
-                valid_energy_error = mean_squared_error(np.sum(hp, 0), np.sum(hp_gt, 0))
-                valid_energy_std = ((np.sum(hp, 0) - np.sum(hp_gt, 0)) ** 2).std()
-
-                print('Iteration:{},Training Loss:{:.3g}'.format(iteration * Tot_iters + sub_iter, loss))
-
-                if noisy:
-                    saver.save(sess, data_dir + classic_method + str(sublr) + integ + fname + 'noisy')
-                else:
-                    saver.save(sess, data_dir + classic_method + str(sublr) + integ + fname)
-
+                # print('Iteration:{},Training Loss:{:.3g}'.format(iteration * Tot_iters + sub_iter, loss))
+                #
+                # if noisy:
+                #     saver.save(sess, data_dir + classic_method + str(sublr) + integ + fname + 'noisy')
+                # else:
+                #     saver.save(sess, data_dir + classic_method + str(sublr) + integ + fname)
+                #
                 for t_iters in range(n_test_traj):
                     input_batch = test_xnow[t_iters * BS_test:t_iters * BS_test + 1]
                     true_batch = test_xnext[t_iters * BS_test: (t_iters + 1) * BS_test]
@@ -191,11 +188,11 @@ for model_type in model_types:
                     test_std = ((yhat - true_batch) ** 2).std()
                     test_energy_std = ((np.sum(hp, 0) - np.sum(hp_gt, 0)) ** 2).std()
                     df_all.loc[len(df_all)] = [classic_method, model_type, t_iters,
-                                               train_loss, train_std, train_energy_error, train_energy_std,
-                                               valid_loss, valid_std, valid_energy_error, valid_energy_std,
+                                               1, 1, 1, 1,
+                                               1, 1, 1, 1,
                                                state_error, test_std, energy_error, test_energy_std]
                     df_all.to_csv(f'run_data_{dataset_name}_{integ}_{noisy}_{fname}.csv')
-                # print('mean test error:{}'.format(error_collector[lr_index, :, :].mean(1)))
+                # # print('mean test error:{}'.format(error_collector[lr_index, :, :].mean(1)))
                 # print('std test error:{}'.format(error_collector[lr_index, :, :].std(1)))
             # if noisy:
             #     np.save(data_dir + dirw + 'classic_collater_noisy' + '.npy', error_collector)
