@@ -108,6 +108,7 @@ for model_type in model_types:
 
                 gm = nongraph_model(classic_method, num_nodes, BS, integ, expt_name, sublr, noisy, spdim, srate)
                 optim = torch.optim.Adam(gm.parameters(), 1e-3)
+                scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=10000, gamma=0.1)
                 xvec = np.arange(0, tot_train_samples, 1, dtype=int)
                 xvec_valid = np.arange(0, tot_train_samples_valid, 1, dtype=int)
                 xnow = torch.tensor(xnow,requires_grad=True,dtype=torch.float32)
@@ -139,7 +140,7 @@ for model_type in model_types:
                             loss, _ = gm.valid_step(input_batch, true_batch)
                             print('Iteration:{},Validation Loss:{:.3g}'.format(iteration * Tot_iters + sub_iter, loss.item()))
                             writer.add_scalar('valid_loss', loss.item(), iteration * Tot_iters + sub_iter)
-
+                    scheduler.step()
                 gm.eval()
                 train_loss, train_pred_state = gm.valid_step(xnow, xnext)
                 train_std = ((train_pred_state - xnext) ** 2).std()

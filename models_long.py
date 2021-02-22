@@ -134,10 +134,10 @@ class nongraph_model(object):
         if self.is_noisy:
             self.log_noise_var = tf.Variable([0.], dtype=tfk.backend.floatx())
 
-        self.nonlin = tf.nn.softplus
+        self.nonlin = tf.nn.tanh
 
-        self.h1 = snt.Linear(output_size=200, use_bias=True, name='h1')
-        self.h2 = snt.Linear(output_size=200, use_bias=True, name='h2')
+        self.h1 = snt.Linear(output_size=256, use_bias=True, name='h1')
+        self.h2 = snt.Linear(output_size=256, use_bias=True, name='h2')
 
         if self.deriv_method == 'dn':
             self.h3 = snt.Linear(output_size=self.spatial_dim * self.num_nodes, use_bias=False, name='h3')
@@ -152,7 +152,7 @@ class nongraph_model(object):
             self.h3
         ])
 
-        self.input_ph = tf.compat.v1.placeholder(tf.float32, shape=[None, self.spatial_dim * self.num_nodes])
+        self.input_ph = tf.compat.v1.placeholder(tf.float32, shape=[1, self.spatial_dim * self.num_nodes])
         self.test_ph = tf.compat.v1.placeholder(tf.float32, shape=[1, self.spatial_dim * self.num_nodes])
         self.ground_truth_ph = tf.compat.v1.placeholder(tf.float32, shape=[None, self.spatial_dim * self.num_nodes])
 
@@ -179,7 +179,7 @@ class nongraph_model(object):
             self.loss_op_tr = self.create_loss_ops(self.next_step, self.ground_truth_ph)
 
         global_step = tf.Variable(0, trainable=False)
-        rate = self.lr  # tf.compat.v1.train.exponential_decay(self.lr, global_step, 10000, 0.5, staircase=False)
+        rate = tf.compat.v1.train.exponential_decay(self.lr, global_step, 1000, 0.5, staircase=False)
         # tf.train.AdamW()
         optimizer = tf.train.AdamOptimizer(rate)
         self.step_op = optimizer.minimize(self.loss_op_tr, global_step=global_step)
@@ -187,11 +187,13 @@ class nongraph_model(object):
     def future_pred(self, integ, deriv_fun, state_init, dt):
         accum = []
 
-        q_init = state_init[:1]
+        q_init = state_init
+
         accum.append(q_init)
 
         for _ in range(self.BS):
             xtp1 = integ(deriv_fun, accum[-1], dt)
+
             accum.append(xtp1)
 
         yhat = tf.concat(accum, 0)
@@ -211,7 +213,9 @@ class nongraph_model(object):
             g.watch(xt)
             output_nodes = self.mlp(xt)
         dH = g.gradient(output_nodes, xt)
-        return tf.matmul(dH, self.M)
+        return tf.concat(
+            [dH[:, int(self.spatial_dim * self.num_nodes / 2):], -dH[:, :int(self.spatial_dim * self.num_nodes / 2)]],
+            1)  # tf.matmul(dH, self.M)
 
     def deriv_fun_pnn(self, xt):
         qvals = xt[:, :int(self.spatial_dim * self.num_nodes / 2)]
@@ -337,18 +341,21 @@ class graph_model(object):
         integ = choose_integrator(self.integ_method)
 
         if self.deriv_method == 'dgn':
-            self.next_step = integ(self.deriv_fun_dgn, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
-                                   self.num_nodes)
+            self.next_step = self.future_pred(integ, self.deriv_fun_dgn, self.base_graph_tr, self.ks_ph, self.ms_ph,
+                                              self.dt, self.BS,
+                                              self.num_nodes)
             self.test_next_step = integ(self.deriv_fun_dgn, self.test_graph_ph, self.test_ks_ph, self.test_ms_ph,
                                         self.dt, 1, self.num_nodes)
         elif self.deriv_method == 'hogn':
-            self.next_step = integ(self.deriv_fun_hogn, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
-                                   self.num_nodes)
+            self.next_step = self.future_pred(integ, self.deriv_fun_hogn, self.base_graph_tr, self.ks_ph, self.ms_ph,
+                                              self.dt, self.BS,
+                                              self.num_nodes)
             self.test_next_step = integ(self.deriv_fun_hogn, self.test_graph_ph, self.test_ks_ph, self.test_ms_ph,
                                         self.dt, 1, self.num_nodes)
         elif self.deriv_method == 'pgn':
-            self.next_step = integ(self.deriv_fun_pgn, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
-                                   self.num_nodes)
+            self.next_step = self.future_pred(integ, self.deriv_fun_pgn, self.base_graph_tr, self.ks_ph, self.ms_ph,
+                                              self.dt, self.BS,
+                                              self.num_nodes)
             self.test_next_step = integ(self.deriv_fun_pgn, self.test_graph_ph, self.test_ks_ph, self.test_ms_ph,
                                         self.dt, 1, self.num_nodes)
         else:
@@ -375,8 +382,8 @@ class graph_model(object):
         ms_init = ms[0]
         accum.append(q_init)
 
-        for _ in range(self.BS):
-            xtp1 = integ(deriv_fun, accum[-1], ks_init, ms_init, dt, bs, num_nodes)
+        for _ in range(bs):
+            xtp1 = integ(deriv_fun, accum[-1], ks_init, ms_init, dt, 1, num_nodes)
             accum.append(xtp1)
 
         yhat = tf.concat(accum, 0)

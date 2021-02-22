@@ -80,12 +80,21 @@ def vi4(dx_dt_fn, x_t, ks, ms, dt, bs, nodes):
     q = x_t[:, :subdim]
     p = x_t[:, subdim:]
 
-    d1 = d3 = 1. / (2 - 2 ** (1. / 3))
-    d2 = -(2 ** (1. / 3)) / (2 - 2 ** (1. / 3))
-    d4 = 0
+    d1 = 0.515352837431122936
+    d2 = -0.085782019412973646
+    d3 = 0.441583023616466524
+    d4 = 0.128846158365384185
+    c1 = 0.134496199277431089
+    c2 = -0.224819803079420806
+    c3 = 0.756320000515668291
+    c4 = 0.334003603286321425
 
-    c1 = c4 = 1. / (2 * (2 - 2 ** (1. / 3)))
-    c2 = c3 = (1 - 2 ** (1. / 3)) / (2 * (2 - 2 ** (1. / 3)))
+    # d1 = d3 = 1. / (2 - 2 ** (1. / 3))
+    # d2 = -(2 ** (1. / 3)) / (2 - 2 ** (1. / 3))
+    # d4 = 0
+    #
+    # c1 = c4 = 1. / (2 * (2 - 2 ** (1. / 3)))
+    # c2 = c3 = (1 - 2 ** (1. / 3)) / (2 * (2 - 2 ** (1. / 3)))
 
     q1 = q + dt * c1 * dx_dt_fn(tf.concat([q, p], 1), ks, ms, bs, nodes)[:, :subdim]
     p1 = p + dt * d1 * dx_dt_fn(tf.concat([q1, p], 1), ks, ms, bs, nodes)[:, subdim:]
@@ -102,10 +111,10 @@ def vi4(dx_dt_fn, x_t, ks, ms, dt, bs, nodes):
 def rk4ng(dx_dt_fn, x_t, dt):
     k1 = dt * dx_dt_fn(x_t)
     # print(x_t + (1 / 2) * k1)
-    k2 = dt * dx_dt_fn(x_t + (1 / 2) * k1)
-    k3 = dt * dx_dt_fn(x_t + (1 / 2) * k2)
+    k2 = dt * dx_dt_fn(x_t + (1. / 2) * k1)
+    k3 = dt * dx_dt_fn(x_t + (1. / 2) * k2)
     k4 = dt * dx_dt_fn(x_t + k3)
-    x_tp1 = x_t + (1 / 6) * (k1 + k2 * 2 + k3 * 2 + k4)
+    x_tp1 = x_t + (1. / 6) * (k1 + k2 * 2 + k3 * 2 + k4)
     return x_tp1
 
 
@@ -132,11 +141,11 @@ def rk2ng(dx_dt_fn, x_t, dt):
 
 def vi1ng(dx_dt_fn, x_t, dt):
     subdim = int(x_t.shape[1] // 2)
-    q = x_t[:subdim]
-    p = x_t[subdim:]
+    q = x_t[:,:subdim]
+    p = x_t[:,subdim:]
 
-    q1 = q + dt * dx_dt_fn(tf.concat([q, p], 1))[:subdim]
-    p1 = p + dt * dx_dt_fn(tf.concat([q1, p], 1))[subdim:]
+    q1 = q + dt * dx_dt_fn(tf.concat([q, p], 1))[:,:subdim]
+    p1 = p + dt * dx_dt_fn(tf.concat([q1, p], 1))[:,subdim:]
 
     return tf.concat([q1, p1], 1)
 
@@ -149,12 +158,12 @@ def vi2ng(dx_dt_fn, x_t, dt):
     c2 = 1
     d1=d2=0.5
 
-    q1 = q + dt * c1 * dx_dt_fn(torch.cat([q, p], 1))[:, :subdim]
-    p1 = p + dt * d1 * dx_dt_fn(torch.cat([q1, p], 1))[:, subdim:]
-    q2 = q1 + dt * c2 * dx_dt_fn(torch.cat([q1, p1], 1))[:, :subdim]
-    p2 = p1 + dt * d2*dx_dt_fn(torch.cat([q2, p1], 1))[:, subdim:]
+    q1 = q + dt * c1 * dx_dt_fn(tf.concat([q, p], 1))[:, :subdim]
+    p1 = p + dt * d1 * dx_dt_fn(tf.concat([q1, p], 1))[:, subdim:]
+    q2 = q1 + dt * c2 * dx_dt_fn(tf.concat([q1, p1], 1))[:, :subdim]
+    p2 = p1 + dt * d2*dx_dt_fn(tf.concat([q2, p1], 1))[:, subdim:]
 
-    return torch.cat([q2, p2], 1)
+    return tf.concat([q2, p2], 1)
 
 
 def vi3ng(dx_dt_fn, x_t, dt):
@@ -177,22 +186,31 @@ def vi4ng(dx_dt_fn, x_t, dt):
     q = x_t[:, :subdim]
     p = x_t[:, subdim:]
 
-    d1 = d3 = 1. / (2 - 2 ** (1. / 3))
-    d2 = -(2 ** (1. / 3)) / (2 - 2 ** (1. / 3))
-    d4 = 0
+    d1 = 0.515352837431122936
+    d2 = -0.085782019412973646
+    d3 = 0.441583023616466524
+    d4 = 0.128846158365384185
+    c1 = 0.134496199277431089
+    c2 = -0.224819803079420806
+    c3 = 0.756320000515668291
+    c4 = 0.334003603286321425
 
-    c1 = c4 = 1. / (2 * (2 - 2 ** (1. / 3)))
-    c2 = c3 = (1 - 2 ** (1. / 3)) / (2 * (2 - 2 ** (1. / 3)))
+    # d1 = d3 = 1. / (2 - 2 ** (1. / 3))
+    # d2 = -(2 ** (1. / 3)) / (2 - 2 ** (1. / 3))
+    # d4 = 0
+    #
+    # c1 = c4 = 1. / (2 * (2 - 2 ** (1. / 3)))
+    # c2 = c3 = (1 - 2 ** (1. / 3)) / (2 * (2 - 2 ** (1. / 3)))
 
-    q1 = q + dt * c1 * dx_dt_fn(torch.cat([q, p], 1))[:, :subdim]
-    p1 = p + dt * d1 * dx_dt_fn(torch.cat([q1, p], 1))[:, subdim:]
-    q2 = q1 + dt * c2 * dx_dt_fn(torch.cat([q1, p1], 1))[:, :subdim]
-    p2 = p1 + dt * d2 * dx_dt_fn(torch.cat([q2, p1], 1))[:, subdim:]
-    q3 = q2 + dt * c3 * dx_dt_fn(torch.cat([q2, p2], 1))[:, :subdim]
-    p3 = p2 + dt * d3 * dx_dt_fn(torch.cat([q3, p2], 1))[:, subdim:]
-    q4 = q3 + dt * c4 * dx_dt_fn(torch.cat([q3, p3], 1))[:, :subdim]
-    p4 = p3 + dt * d4 * dx_dt_fn(torch.cat([q4, p3], 1))[:, subdim:]
-    return torch.cat([q4, p4], 1)
+    q1 = q + dt * c1 * dx_dt_fn(tf.concat([q, p], 1))[:, :subdim]
+    p1 = p + dt * d1 * dx_dt_fn(tf.concat([q1, p], 1))[:, subdim:]
+    q2 = q1 + dt * c2 * dx_dt_fn(tf.concat([q1, p1], 1))[:, :subdim]
+    p2 = p1 + dt * d2 * dx_dt_fn(tf.concat([q2, p1], 1))[:, subdim:]
+    q3 = q2 + dt * c3 * dx_dt_fn(tf.concat([q2, p2], 1))[:, :subdim]
+    p3 = p2 + dt * d3 * dx_dt_fn(tf.concat([q3, p2], 1))[:, subdim:]
+    q4 = q3 + dt * c4 * dx_dt_fn(tf.concat([q3, p3], 1))[:, :subdim]
+    p4 = p3 + dt * d4 * dx_dt_fn(tf.concat([q4, p3], 1))[:, subdim:]
+    return tf.concat([q4, p4], 1)
 
 
 def create_loss_ops(true, predicted):
@@ -231,13 +249,51 @@ def create_loss_ops(true, predicted):
 #
 #     return data_dict_0
 
+def arrange_data(train_data, ntraj, num_nodes, T_max, dt, srate, spatial_dim=4, nograph=False,samp_size=5):
+
+    xvals = train_data['x'].reshape(ntraj, int(np.ceil(T_max / dt)), -1)
+    # print(xvals.shape)
+    assert samp_size>=2 and samp_size<=xvals.shape[1]
+    collz = []
+    for i in range(samp_size):
+        if i < samp_size - 1:
+            collz.append(xvals[:, i:-samp_size+1 + i, :])
+        else:
+            collz.append(xvals[:, i:, :])
+    # %%
+    # print(np.stack(collz))
+    fin = np.stack(collz).reshape(samp_size, -1, xvals.shape[2])
+
+    # curr_dxs = []
+    # dex = int(np.ceil((T_max / dt) / (srate / dt)))
+
+    # for i in range(ntraj):
+    #     same_batch = train_data['x'][i * dex:(i + 1) * dex, :]
+    #     curr_x = same_batch[:-1, :]
+    #     next_x = same_batch[1:, :]
+    #
+    #     curr_dx = train_data['dx'][i * dex:(i + 1) * dex, :][:-1, :]
+    #     curr_xs.append(curr_x)
+    #     next_xs.append(next_x)
+    #     curr_dxs.append(curr_dx)
+    #
+    # curr_xs = np.vstack(curr_xs)
+    # next_xs = np.vstack(next_xs)
+    # curr_dxs = np.vstack(curr_dxs)
+    return fin
 
 def nownext(train_data, ntraj, num_nodes, T_max, dt, srate, spatial_dim=4, nograph=False):
     curr_xs = []
     next_xs = []
 
+
+
+    train_data['x'].reshape(ntraj,T_max/dt,-1)
+
+
     curr_dxs = []
     dex = int(np.ceil((T_max / dt) / (srate / dt)))
+
     for i in range(ntraj):
         same_batch = train_data['x'][i * dex:(i + 1) * dex, :]
         curr_x = same_batch[:-1, :]

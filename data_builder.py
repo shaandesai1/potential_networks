@@ -235,7 +235,7 @@ def mass_spring(name, num_trajectories, NUM_PARTS, T_max, dt, sub_sample_rate, n
         y0 = y0 / np.sqrt((y0 ** 2).sum()) * (radius)
 
         spring_ivp = rk(lambda t, y: dynamics_fn(t, y), t_span, y0,
-                        t_eval=np.arange(0, t_span[1], timescale),
+                        t_eval=np.arange(0, t_span[1], timescale),method='DOP853',rtol=1e-12,
                         )
 
         accum = spring_ivp.y.T
@@ -449,13 +449,16 @@ def pendulum(expt_name, num_samples, num_particles, T_max, dt, srate, noise_std,
 
     def hamiltonian_fn(coords):
         q, p = np.split(coords, 2)
-        H = 9.81 * (1 - cos(q)) + (p ** 2) / 2  # pendulum hamiltonian
+        H = 9.81 * (1 - cos(q)) + 0.5*(p ** 2)   # pendulum hamiltonian
         return H
 
     def dynamics_fn2(t,coords):
-        dcoords = autograd.grad(hamiltonian_fn)(coords)
-        dqdt, dpdt = np.split(dcoords, 2)
-        S = np.concatenate([dpdt, -dqdt], axis=-1)
+        # print(coords)
+        # dcoords = autograd.grad(hamiltonian_fn)(coords)
+        # dqdt, dpdt = np.split(dcoords, 2)
+        # S = np.concatenate([dpdt, -dqdt], axis=-1)
+
+        S = [coords[1],-9.81*sin(coords[0])]
         return S
 
     def get_trajectory(t_span=[0, T_max], timescale=dt, radius=None, y0=None, **kwargs):
@@ -513,7 +516,7 @@ def pendulum(expt_name, num_samples, num_particles, T_max, dt, srate, noise_std,
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-    d = get_dataset('pendulum', 'temp', 5, 1, 6.05, 0.05, 0.05)
+    d = get_dataset('pendulum', 'temp', 10, 1, 5.1, 0.1, 0.1)
     #d1 = get_dataset('mass_spring', 'temp', 25, 1,6.1, 0.1, 0.1,seed=11)
 
     plt.scatter(d['x'][:, 0], d['x'][:, 1])

@@ -63,7 +63,7 @@ hamiltonian_fn = get_hamiltonian(dataset_name)
 # model loop settings
 model_types = ['classic']
 
-classic_methods = ['dn', 'hnn','pnn']
+classic_methods = ['hnn']
 graph_methods = ['dgn', 'hogn', 'pgn']
 
 lr_stack = [1e-3]
@@ -109,7 +109,7 @@ for model_type in model_types:
 
                 gm = nongraph_model(classic_method, num_nodes, BS, integ, expt_name, sublr, noisy, spdim, srate)
                 # print(gm.parameters())
-                optim = torch.optim.Adam(gm.parameters(), 1e-3,weight_decay=1e-5)
+                optim = torch.optim.Adam(gm.parameters(), 1e-3)
                 xvec = np.arange(0, int(num_samples_per_traj*num_trajectories), 1, dtype=int)
                 # xvec_valid = np.arange(0, tot_train_samples_valid, 1, dtype=int)
                 xnow = torch.tensor(xnow,requires_grad=True,dtype=torch.float32)

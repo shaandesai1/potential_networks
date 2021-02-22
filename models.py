@@ -17,7 +17,6 @@ from tensorflow_probability import distributions as tfd
 import os
 
 
-
 def create_loss_ops(true, predicted):
     """MSE loss"""
     loss_ops = tf.reduce_mean((true - predicted) ** 2)
@@ -92,7 +91,8 @@ def choose_integrator_nongraph(method):
 class nongraph_model(object):
 
     def __init__(self, sess, deriv_method, num_nodes, BS, integ_meth, expt_name, lr,
-                 noisy, spatial_dim, dt):
+                 noisy, spatial_dim, dt, num_hdims=2, hidden_dims=256, lr_iters=10000, nonlinearity='softplus',
+                 long_range=False,integ_step=2):
         """
             Builds a tensorflow classic non-graph model object
             Args:
@@ -107,6 +107,15 @@ class nongraph_model(object):
                 spatial_dim (int): the dimension of state vector for 1 particle (e.g. 2, [q,qdot] in spring system)
                 dt (float): sampling rate
             """
+
+        self.hidden_dims = hidden_dims
+        self.nonlinearity = nonlinearity
+        self.long_range = long_range
+        self.lr_iters = lr_iters
+        self.num_hdims = num_hdims
+        self.lr_scale = 0.5
+        self.integ_step = integ_step
+
         self.sess = sess
         self.deriv_method = deriv_method
         self.num_nodes = num_nodes
@@ -135,10 +144,22 @@ class nongraph_model(object):
         if self.is_noisy:
             self.log_noise_var = tf.Variable([0.], dtype=tfk.backend.floatx())
 
-        self.nonlin = tf.nn.softplus
+        if self.nonlinearity == 'softplus':
+            self.nonlin = tf.nn.softplus
+        elif self.nonlinearity == 'tanh':
+            self.nonlin = tf.nn.tanh
+        elif self.nonlinearity == 'cos':
+            self.nonlin = tf.nn.cos
+        elif self.nonlinearity == 'sin':
+            self.nonlin == tf.nn.sin
+        else:
+            raise ValueError('The suggested nonlinearity is not defined')
 
-        self.h1 = snt.Linear(output_size=200, use_bias=True, name='h1')
-        self.h2 = snt.Linear(output_size=200, use_bias=True, name='h2')
+        self.mlp_base = snt.nets.MLP([self.hidden_dims] * self.num_hdims, use_bias=True, activation=self.nonlin,
+                                     activate_final=True, name='mlp')
+
+        # self.h1 = snt.Linear(output_size=self.hidden_dims, use_bias=True, name='h1')
+        # self.h2 = snt.Linear(output_size=self.hidden_dims, use_bias=True, name='h2')
 
         if self.deriv_method == 'dn':
             self.h3 = snt.Linear(output_size=self.spatial_dim * self.num_nodes, use_bias=False, name='h3')
@@ -146,29 +167,35 @@ class nongraph_model(object):
             self.h3 = snt.Linear(output_size=1, use_bias=False, name='h3')
 
         self.mlp = snt.Sequential([
-            self.h1,
-            self.nonlin,
-            self.h2,
-            self.nonlin,
+            self.mlp_base,
             self.h3
         ])
 
         self.input_ph = tf.compat.v1.placeholder(tf.float32, shape=[None, self.spatial_dim * self.num_nodes])
         self.test_ph = tf.compat.v1.placeholder(tf.float32, shape=[1, self.spatial_dim * self.num_nodes])
-        self.ground_truth_ph = tf.compat.v1.placeholder(tf.float32, shape=[None, self.spatial_dim * self.num_nodes])
+        self.ground_truth_ph = tf.compat.v1.placeholder(tf.float32, shape=[self.integ_step-1,None, self.spatial_dim * self.num_nodes])
 
         integ = choose_integrator_nongraph(self.integ_method)
 
         if self.deriv_method == 'dn':
-            self.next_step = integ(self.deriv_fun_dn, self.input_ph, self.dt)
+            if self.long_range:
+                self.next_step = self.future_pred(integ, self.deriv_fun_dn, self.input_ph, self.dt)
+            else:
+                self.next_step = integ(self.deriv_fun_dn, self.input_ph, self.dt)
             self.test_next_step = integ(self.deriv_fun_dn, self.test_ph, self.dt)
 
         elif self.deriv_method == 'hnn':
-            self.next_step = integ(self.deriv_fun_hnn, self.input_ph, self.dt)
+            if self.long_range:
+                self.next_step = self.future_pred(integ, self.deriv_fun_hnn, self.input_ph, self.dt)
+            else:
+                self.next_step = integ(self.deriv_fun_hnn, self.input_ph, self.dt)
             self.test_next_step = integ(self.deriv_fun_hnn, self.test_ph, self.dt)
 
         elif self.deriv_method == 'pnn':
-            self.next_step = integ(self.deriv_fun_pnn, self.input_ph, self.dt)
+            if self.long_range:
+                self.next_step = self.future_pred(integ, self.deriv_fun_pnn, self.input_ph, self.dt)
+            else:
+                self.next_step = integ(self.deriv_fun_pnn, self.input_ph, self.dt)
             self.test_next_step = integ(self.deriv_fun_pnn, self.test_ph, self.dt)
 
         else:
@@ -180,10 +207,26 @@ class nongraph_model(object):
             self.loss_op_tr = self.create_loss_ops(self.next_step, self.ground_truth_ph)
 
         global_step = tf.Variable(0, trainable=False)
-        rate = self.lr  # tf.compat.v1.train.exponential_decay(self.lr, global_step, 10000, 0.5, staircase=False)
+        rate = tf.compat.v1.train.exponential_decay(self.lr, global_step, self.lr_iters, self.lr_scale, staircase=False)
         # tf.train.AdamW()
         optimizer = tf.train.AdamOptimizer(rate)
         self.step_op = optimizer.minimize(self.loss_op_tr, global_step=global_step)
+
+    def future_pred(self, integ, deriv_fun, state_init, dt):
+        accum = []
+        first_dim = state_init.shape[0]
+        q_init = state_init
+        print(f'qinitshape {q_init.shape}')
+        accum.append(q_init)
+        # print(self.BS)
+        for _ in range(self.BS):
+            xtp1 = integ(deriv_fun, accum[-1], dt)
+
+            accum.append(xtp1)
+
+        yhat = tf.stack(accum, 0)
+        print(f'yhatshape {yhat.shape}')
+        return yhat[1:]
 
     def create_loss_ops(self, true, predicted):
         """MSE loss"""
@@ -199,7 +242,9 @@ class nongraph_model(object):
             g.watch(xt)
             output_nodes = self.mlp(xt)
         dH = g.gradient(output_nodes, xt)
-        return tf.matmul(dH, self.M)
+        return tf.concat(
+            [dH[:, int(self.spatial_dim * self.num_nodes / 2):], -dH[:, :int(self.spatial_dim * self.num_nodes / 2)]],
+            1)
 
     def deriv_fun_pnn(self, xt):
         qvals = xt[:, :int(self.spatial_dim * self.num_nodes / 2)]
@@ -318,12 +363,11 @@ class graph_model(object):
         self.true_dq_ph = tf.compat.v1.placeholder(tf.float32, shape=[None, self.spatial_dim])
 
         self.test_graph_ph = tf.compat.v1.placeholder(tf.float32,
-                                                      shape=[self.num_nodes*self.BS_test, self.spatial_dim])
+                                                      shape=[self.num_nodes * self.BS_test, self.spatial_dim])
         self.test_ks_ph = tf.compat.v1.placeholder(tf.float32, shape=[self.BS_test, self.num_nodes])
         self.test_ms_ph = tf.compat.v1.placeholder(tf.float32, shape=[self.BS_test, self.num_nodes])
 
         integ = choose_integrator(self.integ_method)
-
 
         if self.deriv_method == 'dgn':
             self.next_step = integ(self.deriv_fun_dgn, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
@@ -405,9 +449,9 @@ class graph_model(object):
 
     def deriv_fun_dgn(self, xt, ks, ms, bs, n_nodes):
         if self.activate_sub == True:
-            sub_vecs = self.sub_mean(xt,bs)
+            sub_vecs = self.sub_mean(xt, bs)
         else:
-            sub_vecs =xt
+            sub_vecs = xt
 
         input_vec = tf.concat(sub_vecs, 0)
         vec2g = [self.base_graph(input_vec[n_nodes * i:n_nodes * (i + 1)], ks[i], ms[i], n_nodes) for i in range(bs)]
@@ -441,17 +485,16 @@ class graph_model(object):
         dHdin = tf.concat([dqdt, dpdt], 1)
         return dHdin
 
-    def sub_mean(self, xt,bs):
+    def sub_mean(self, xt, bs):
         init_x = xt[:, :int(self.spatial_dim / 2)]
         # means = tf.reduce_mean(init_x, 0)
         # new_means = tf.transpose(tf.reshape(tf.repeat(means, init_x.shape[0]), (int(self.spatial_dim / 2), -1)))
         # return tf.concat([init_x - new_means, xt[:, int(self.spatial_dim / 2):]], 1)
-        init_x = tf.reshape(init_x,(bs,self.num_nodes,int(self.spatial_dim/2)))
-        means = tf.reshape(tf.reduce_mean(init_x,1),(-1,int(self.spatial_dim/2)))
-        new_means = tf.repeat(means,self.num_nodes,0)
+        init_x = tf.reshape(init_x, (bs, self.num_nodes, int(self.spatial_dim / 2)))
+        means = tf.reshape(tf.reduce_mean(init_x, 1), (-1, int(self.spatial_dim / 2)))
+        new_means = tf.repeat(means, self.num_nodes, 0)
         # print(new_means.shape)
-        return tf.concat([xt[:,:int(self.spatial_dim/2)]-new_means,xt[:,int(self.spatial_dim/2):]],1)
-
+        return tf.concat([xt[:, :int(self.spatial_dim / 2)] - new_means, xt[:, int(self.spatial_dim / 2):]], 1)
 
     def deriv_fun_pgn(self, xt, ks, ms, bs, n_nodes):
         if self.activate_sub == True:
@@ -469,7 +512,7 @@ class graph_model(object):
             #     vec2g = [self.base_graph(q[n_nodes * i:n_nodes * (i + 1)], ks, ms, n_nodes) for i in range(bs)]
             # else:
             vec2g = [self.base_graph(q[n_nodes * i:n_nodes * (i + 1)], ks[i], ms[i], n_nodes) for i in
-                         range(bs)]
+                     range(bs)]
 
             vec2g = utils_tf.data_dicts_to_graphs_tuple(vec2g)
             vec2g = utils_tf.set_zero_global_features(vec2g, 1)
@@ -493,7 +536,7 @@ class graph_model(object):
         return loss, next_pred
 
     def valid_step(self, input_batch, true_batch, ks, mass):
-        BS = int(len(input_batch)/self.num_nodes)
+        BS = int(len(input_batch) / self.num_nodes)
         integ = choose_integrator(self.integ_method)
         base_graph_tr = tf.compat.v1.placeholder(tf.float32, shape=[self.num_nodes * BS, self.spatial_dim])
         ks_ph = tf.compat.v1.placeholder(tf.float32, shape=[BS, self.num_nodes])
@@ -502,13 +545,13 @@ class graph_model(object):
 
         if self.deriv_method == 'dgn':
             next_step = integ(self.deriv_fun_dgn, base_graph_tr, ks_ph, ms_ph, self.dt, BS,
-                                   self.num_nodes)
+                              self.num_nodes)
         elif self.deriv_method == 'hogn':
             next_step = integ(self.deriv_fun_hogn, base_graph_tr, ks_ph, ms_ph, self.dt, BS,
-                                   self.num_nodes)
+                              self.num_nodes)
         elif self.deriv_method == 'pgn':
             next_step = integ(self.deriv_fun_pgn, base_graph_tr, ks_ph, ms_ph, self.dt, BS,
-                                   self.num_nodes)
+                              self.num_nodes)
         loss_op_tr = self.create_loss_ops(next_step, true_dq_ph)
         train_feed = {base_graph_tr: input_batch,
                       true_dq_ph: true_batch,
