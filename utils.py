@@ -2,6 +2,8 @@ import numpy as np
 import tensorflow as tf
 
 import torch
+
+
 ### GRAPH BASED INTEGRATORS
 def rk4(dx_dt_fn, x_t, ks, ms, dt, bs, nodes):
     k1 = dt * dx_dt_fn(x_t, ks, ms, bs, nodes)
@@ -44,7 +46,7 @@ def vi1ng(dx_dt_fn, x_t, ):
     return tf.concat([q1, p1], 1)
 
 
-def vi2(dx_dt_fn, x_t,  ks, ms, dt, bs, nodes):
+def vi2(dx_dt_fn, x_t, ks, ms, dt, bs, nodes):
     subdim = int(x_t.shape[1] // 2)
     q = x_t[:, :subdim]
     p = x_t[:, subdim:]
@@ -52,24 +54,24 @@ def vi2(dx_dt_fn, x_t,  ks, ms, dt, bs, nodes):
     c2 = 1
     d1 = d2 = 0.5
 
-    q1 = q + dt * c1 * dx_dt_fn(tf.concat([q, p], 1), ks, ms, bs, nodes)[:,:subdim]
+    q1 = q + dt * c1 * dx_dt_fn(tf.concat([q, p], 1), ks, ms, bs, nodes)[:, :subdim]
     p1 = p + dt * d1 * dx_dt_fn(tf.concat([q1, p], 1), ks, ms, bs, nodes)[:, subdim:]
-    q2 = q1 + dt * c2 * dx_dt_fn(tf.concat([q1, p1], 1), ks, ms, bs, nodes)[:,:subdim]
-    p2 = p1 + dt *d2* dx_dt_fn(tf.concat([q2, p1], 1), ks, ms, bs, nodes)[:, subdim:]
+    q2 = q1 + dt * c2 * dx_dt_fn(tf.concat([q1, p1], 1), ks, ms, bs, nodes)[:, :subdim]
+    p2 = p1 + dt * d2 * dx_dt_fn(tf.concat([q2, p1], 1), ks, ms, bs, nodes)[:, subdim:]
 
     return tf.concat([q2, p2], 1)
 
 
-def vi3(dx_dt_fn, x_t,  ks, ms, dt, bs, nodes):
+def vi3(dx_dt_fn, x_t, ks, ms, dt, bs, nodes):
     subdim = int(x_t.shape[1] // 2)
     q = x_t[:, :subdim]
     p = x_t[:, subdim:]
 
-    q1 = q + dt * (-1. / 24) * dx_dt_fn(tf.concat([q, p], 1), ks, ms, bs, nodes)[:,:subdim]
+    q1 = q + dt * (-1. / 24) * dx_dt_fn(tf.concat([q, p], 1), ks, ms, bs, nodes)[:, :subdim]
     p1 = p + dt * 1 * dx_dt_fn(tf.concat([q1, p], 1), ks, ms, bs, nodes)[:, subdim:]
-    q2 = q1 + dt * (3. / 4) * dx_dt_fn(tf.concat([q1, p1], 1), ks, ms, bs, nodes)[:,:subdim]
+    q2 = q1 + dt * (3. / 4) * dx_dt_fn(tf.concat([q1, p1], 1), ks, ms, bs, nodes)[:, :subdim]
     p2 = p1 + dt * (-2. / 3) * dx_dt_fn(tf.concat([q2, p1], 1), ks, ms, bs, nodes)[:, subdim:]
-    q3 = q2 + dt * (7. / 24) * dx_dt_fn(tf.concat([q2, p2], 1), ks, ms, bs, nodes)[:,:subdim]
+    q3 = q2 + dt * (7. / 24) * dx_dt_fn(tf.concat([q2, p2], 1), ks, ms, bs, nodes)[:, :subdim]
     p3 = p2 + dt * (2. / 3) * dx_dt_fn(tf.concat([q3, p2], 1), ks, ms, bs, nodes)[:, subdim:]
 
     return tf.concat([q3, p3], 1)
@@ -141,11 +143,11 @@ def rk2ng(dx_dt_fn, x_t, dt):
 
 def vi1ng(dx_dt_fn, x_t, dt):
     subdim = int(x_t.shape[1] // 2)
-    q = x_t[:,:subdim]
-    p = x_t[:,subdim:]
+    q = x_t[:, :subdim]
+    p = x_t[:, subdim:]
 
-    q1 = q + dt * dx_dt_fn(tf.concat([q, p], 1))[:,:subdim]
-    p1 = p + dt * dx_dt_fn(tf.concat([q1, p], 1))[:,subdim:]
+    q1 = q + dt * dx_dt_fn(tf.concat([q, p], 1))[:, :subdim]
+    p1 = p + dt * dx_dt_fn(tf.concat([q1, p], 1))[:, subdim:]
 
     return tf.concat([q1, p1], 1)
 
@@ -156,12 +158,12 @@ def vi2ng(dx_dt_fn, x_t, dt):
     p = x_t[:, subdim:]
     c1 = 0
     c2 = 1
-    d1=d2=0.5
+    d1 = d2 = 0.5
 
     q1 = q + dt * c1 * dx_dt_fn(tf.concat([q, p], 1))[:, :subdim]
     p1 = p + dt * d1 * dx_dt_fn(tf.concat([q1, p], 1))[:, subdim:]
     q2 = q1 + dt * c2 * dx_dt_fn(tf.concat([q1, p1], 1))[:, :subdim]
-    p2 = p1 + dt * d2*dx_dt_fn(tf.concat([q2, p1], 1))[:, subdim:]
+    p2 = p1 + dt * d2 * dx_dt_fn(tf.concat([q2, p1], 1))[:, subdim:]
 
     return tf.concat([q2, p2], 1)
 
@@ -249,47 +251,30 @@ def create_loss_ops(true, predicted):
 #
 #     return data_dict_0
 
-def arrange_data(train_data, ntraj, num_nodes, T_max, dt, srate, spatial_dim=4, nograph=False,samp_size=5):
-
+def arrange_data(train_data, ntraj, num_nodes, T_max, dt, srate, spatial_dim=4, nograph=False, samp_size=5):
+    vdim = int(spatial_dim / 2)
     xvals = train_data['x'].reshape(ntraj, int(np.ceil(T_max / dt)), -1)
-    # print(xvals.shape)
-    assert samp_size>=2 and samp_size<=xvals.shape[1]
+    assert samp_size >= 2 and samp_size <= xvals.shape[1]
     collz = []
     for i in range(samp_size):
         if i < samp_size - 1:
-            collz.append(xvals[:, i:-samp_size+1 + i, :])
+            collz.append(xvals[:, i:-samp_size + 1 + i, :])
         else:
             collz.append(xvals[:, i:, :])
-    # %%
-    # print(np.stack(collz))
     fin = np.stack(collz).reshape(samp_size, -1, xvals.shape[2])
 
-    # curr_dxs = []
-    # dex = int(np.ceil((T_max / dt) / (srate / dt)))
-
-    # for i in range(ntraj):
-    #     same_batch = train_data['x'][i * dex:(i + 1) * dex, :]
-    #     curr_x = same_batch[:-1, :]
-    #     next_x = same_batch[1:, :]
-    #
-    #     curr_dx = train_data['dx'][i * dex:(i + 1) * dex, :][:-1, :]
-    #     curr_xs.append(curr_x)
-    #     next_xs.append(next_x)
-    #     curr_dxs.append(curr_dx)
-    #
-    # curr_xs = np.vstack(curr_xs)
-    # next_xs = np.vstack(next_xs)
-    # curr_dxs = np.vstack(curr_dxs)
+    if not nograph:
+        qs = fin[:, :, :int((xvals.shape[2]) / 2)].reshape(samp_size, -1, num_nodes, vdim)
+        ps = fin[:, :, int((xvals.shape[2]) / 2):].reshape(samp_size, -1, num_nodes, vdim)
+        fin = np.concatenate([qs, ps], 3)
     return fin
+
 
 def nownext(train_data, ntraj, num_nodes, T_max, dt, srate, spatial_dim=4, nograph=False):
     curr_xs = []
     next_xs = []
 
-
-
-    train_data['x'].reshape(ntraj,T_max/dt,-1)
-
+    train_data['x'].reshape(ntraj, T_max / dt, -1)
 
     curr_dxs = []
     dex = int(np.ceil((T_max / dt) / (srate / dt)))
@@ -341,7 +326,6 @@ def nownext(train_data, ntraj, num_nodes, T_max, dt, srate, spatial_dim=4, nogra
 
 
 def get_hamiltonian(dataset_name):
-
     if dataset_name == 'mass_spring':
 
         def hamiltonian_fn(coords, model_type):
@@ -349,6 +333,7 @@ def get_hamiltonian(dataset_name):
             K = (p ** 2) / 2
             U = (q ** 2) / 2  # spring hamiltonian (linear oscillator)
             return K, U
+
         return hamiltonian_fn
 
     elif dataset_name == 'pendulum':
@@ -358,6 +343,7 @@ def get_hamiltonian(dataset_name):
             U = 9.81 * (1 - np.cos(q))
             K = + (p ** 2) / 2  # pendulum hamiltonian
             return K, U
+
         return hamiltonian_fn
 
     elif dataset_name == 'n_grav':
@@ -370,7 +356,7 @@ def get_hamiltonian(dataset_name):
                 v = vec[:, 2 * num_particles:]
                 BS = len(x)
             else:
-                BS = int(len(vec)/num_particles)
+                BS = int(len(vec) / num_particles)
             #         print(x.shape)
             uvals = []
             #         print(vec.shape)
@@ -398,6 +384,7 @@ def get_hamiltonian(dataset_name):
                 uvals.append(U1)
                 kvals.append(K)
             return np.array(kvals), np.array(uvals)
+
         return hamiltonian_fn
     elif dataset_name == 'n_spring':
 

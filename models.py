@@ -315,8 +315,19 @@ class graph_model(object):
         eflag (bool): whether to use extra input in building graph (default=True)
     """
 
+
     def __init__(self, sess, deriv_method, num_nodes, BS, integ_meth, expt_name, lr,
-                 noisy, spatial_dim, dt, eflag=True):
+                 noisy, spatial_dim, dt, num_hdims=2, hidden_dims=32, lr_iters=10000, nonlinearity='softplus',
+                 long_range=False,integ_step=2):
+
+        self.hidden_dims = hidden_dims
+        self.nonlinearity = nonlinearity
+        self.long_range = long_range
+        self.lr_iters = lr_iters
+        self.num_hdims = num_hdims
+        self.lr_scale = 0.5
+        self.integ_step = integ_step
+
 
         self.sess = sess
         self.deriv_method = deriv_method
@@ -346,13 +357,27 @@ class graph_model(object):
         if self.is_noisy:
             self.log_noise_var = tf.Variable([0.], dtype=tfk.backend.floatx())
 
+
+        if self.nonlinearity == 'softplus':
+            self.nonlin = tf.nn.softplus
+        elif self.nonlinearity == 'tanh':
+            self.nonlin = tf.nn.tanh
+        elif self.nonlinearity == 'cos':
+            self.nonlin = tf.nn.cos
+        elif self.nonlinearity == 'sin':
+            self.nonlin == tf.nn.sin
+        else:
+            raise ValueError('The suggested nonlinearity is not defined')
+
+
+
         self.out_to_global = snt.Linear(output_size=1, use_bias=False, name='out_to_global')
         self.out_to_node = snt.Linear(output_size=self.spatial_dim, use_bias=True, name='out_to_node')
 
         self.graph_network = modules.GraphNetwork(
-            edge_model_fn=lambda: snt.nets.MLP([32, 32], activation=tf.nn.softplus, activate_final=True),
-            node_model_fn=lambda: snt.nets.MLP([32, 32], activation=tf.nn.softplus, activate_final=True),
-            global_model_fn=lambda: snt.nets.MLP([32, 32], activation=tf.nn.softplus, activate_final=True),
+            edge_model_fn=lambda: snt.nets.MLP([self.hidden_dims]*self.num_hdims, activation=self.nonlin, activate_final=True),
+            node_model_fn=lambda: snt.nets.MLP([self.hidden_dims]*self.num_hdims, activation=self.nonlin, activate_final=True),
+            global_model_fn=lambda: snt.nets.MLP([self.hidden_dims]*self.num_hdims, activation=self.nonlin, activate_final=True),
         )
 
         self.base_graph_tr = tf.compat.v1.placeholder(tf.float32,
@@ -360,7 +385,7 @@ class graph_model(object):
         self.ks_ph = tf.compat.v1.placeholder(tf.float32, shape=[self.BS, self.num_nodes])
         self.ms_ph = tf.compat.v1.placeholder(tf.float32, shape=[self.BS, self.num_nodes])
 
-        self.true_dq_ph = tf.compat.v1.placeholder(tf.float32, shape=[None, self.spatial_dim])
+        self.true_dq_ph = tf.compat.v1.placeholder(tf.float32, shape=[self.integ_step-1,self.BS, self.spatial_dim])
 
         self.test_graph_ph = tf.compat.v1.placeholder(tf.float32,
                                                       shape=[self.num_nodes * self.BS_test, self.spatial_dim])
@@ -370,17 +395,31 @@ class graph_model(object):
         integ = choose_integrator(self.integ_method)
 
         if self.deriv_method == 'dgn':
-            self.next_step = integ(self.deriv_fun_dgn, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
+            if self.long_range:
+                self.next_step = self.future_pred(integ, self.deriv_fun_dgn, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
+                                   self.num_nodes)
+            else:
+                self.next_step = integ(self.deriv_fun_dgn, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
                                    self.num_nodes)
             self.test_next_step = integ(self.deriv_fun_dgn, self.test_graph_ph, self.test_ks_ph, self.test_ms_ph,
                                         self.dt, 1, self.num_nodes)
         elif self.deriv_method == 'hogn':
-            self.next_step = integ(self.deriv_fun_hogn, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
+            if self.long_range:
+                self.next_step = self.future_pred(integ, self.deriv_fun_hogn, self.base_graph_tr, self.ks_ph, self.ms_ph,
+                                                  self.dt, self.BS,
+                                                  self.num_nodes)
+            else:
+                self.next_step = integ(self.deriv_fun_hogn, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
                                    self.num_nodes)
             self.test_next_step = integ(self.deriv_fun_hogn, self.test_graph_ph, self.test_ks_ph, self.test_ms_ph,
                                         self.dt, 1, self.num_nodes)
         elif self.deriv_method == 'pgn':
-            self.next_step = integ(self.deriv_fun_pgn, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
+            if self.long_range:
+                self.next_step = self.future_pred(integ, self.deriv_fun_pgn, self.base_graph_tr, self.ks_ph, self.ms_ph,
+                                                  self.dt, self.BS,
+                                                  self.num_nodes)
+            else:
+                self.next_step = integ(self.deriv_fun_pgn, self.base_graph_tr, self.ks_ph, self.ms_ph, self.dt, self.BS,
                                    self.num_nodes)
             self.test_next_step = integ(self.deriv_fun_pgn, self.test_graph_ph, self.test_ks_ph, self.test_ms_ph,
                                         self.dt, 1, self.num_nodes)
@@ -393,7 +432,7 @@ class graph_model(object):
             self.loss_op_tr = self.create_loss_ops(self.next_step, self.true_dq_ph)
 
         global_step = tf.Variable(0, trainable=False)
-        rate = self.lr  # tf.compat.v1.train.exponential_decay(self.lr, global_step, 10000, 0.5, staircase=False)
+        rate = tf.compat.v1.train.exponential_decay(self.lr, global_step, self.lr_iters, self.lr_scale, staircase=False)
         optimizer = tf.train.AdamOptimizer(rate)
         self.step_op = optimizer.minimize(self.loss_op_tr, global_step=global_step)
 
@@ -403,17 +442,17 @@ class graph_model(object):
         """
         accum = []
 
-        q_init = state_init[:num_nodes]
-        ks_init = ks[0]
-        ms_init = ms[0]
+        q_init = state_init
         accum.append(q_init)
 
-        for _ in range(self.BS):
-            xtp1 = integ(deriv_fun, accum[-1], ks_init, ms_init, dt, bs, num_nodes)
+        for _ in range(self.integ_step-1):
+            xtp1 = integ(deriv_fun, accum[-1], ks, ms, dt, bs, num_nodes)
             accum.append(xtp1)
 
-        yhat = tf.concat(accum, 0)
-        return yhat[num_nodes:]
+        yhat = tf.stack(accum, 0)
+        print(f'yhatshape {yhat.shape}')
+
+        return yhat[1:]
 
     def create_loss_ops(self, true, predicted):
         """MSE loss"""
