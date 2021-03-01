@@ -291,9 +291,9 @@ class nongraph_model(object):
             yhat = self.sess.run(test_ops, feed_dict=test_feed)
             stored_states.append(yhat[0])
 
-        preds = tf.concat(stored_states, 0).eval(session=self.sess)
+        preds = tf.stack(stored_states, 0).eval(session=self.sess)
 
-        error = mean_squared_error(preds[1:, :], true_batch[:, :])
+        error = mean_squared_error(preds[1:].flatten(), true_batch.flatten())
 
         return error, preds[1:, :]
 
@@ -318,7 +318,7 @@ class graph_model(object):
 
     def __init__(self, sess, deriv_method, num_nodes, BS, integ_meth, expt_name, lr,
                  noisy, spatial_dim, dt, num_hdims=2, hidden_dims=32, lr_iters=10000, nonlinearity='softplus',
-                 long_range=False,integ_step=2):
+                 long_range=False,integ_step=2,num_test_traj=25):
 
         self.hidden_dims = hidden_dims
         self.nonlinearity = nonlinearity
@@ -328,7 +328,7 @@ class graph_model(object):
         self.lr_scale = 0.5
         self.integ_step = integ_step
 
-
+        self.test_traj = num_test_traj
         self.sess = sess
         self.deriv_method = deriv_method
         self.num_nodes = num_nodes
@@ -385,7 +385,7 @@ class graph_model(object):
         self.ks_ph = tf.compat.v1.placeholder(tf.float32, shape=[self.BS, self.num_nodes])
         self.ms_ph = tf.compat.v1.placeholder(tf.float32, shape=[self.BS, self.num_nodes])
 
-        self.true_dq_ph = tf.compat.v1.placeholder(tf.float32, shape=[self.integ_step-1,self.BS, self.spatial_dim])
+        self.true_dq_ph = tf.compat.v1.placeholder(tf.float32, shape=[self.integ_step-1,self.BS*self.num_nodes, self.spatial_dim])
 
         self.test_graph_ph = tf.compat.v1.placeholder(tf.float32,
                                                       shape=[self.num_nodes * self.BS_test, self.spatial_dim])
@@ -613,9 +613,9 @@ class graph_model(object):
             yhat = self.sess.run(test_ops, feed_dict=test_feed)
             stored_states.append(yhat[0])
 
-        preds = tf.concat(stored_states, 0).eval(session=self.sess)
+        preds = tf.stack(stored_states, 0).eval(session=self.sess)
 
-        error = mean_squared_error(preds[self.num_nodes:, :], true_batch[:, :])
+        error = ((preds[1:, :] - true_batch[:, :])**2).mean()
 
         if self.output_plots is True:
             data_dir = 'data/plots/' + self.expt_name + '/' + str(self.lr) + '/' + str(self.integ_method) + '/'
@@ -646,4 +646,4 @@ class graph_model(object):
             plt.title(self.deriv_method + str(self.lr) + ' graphic space evolution')
             plt.savefig(data_dir + 'graphic' + self.deriv_method + 'onetraj')
 
-        return error, preds[self.num_nodes:]
+        return error, preds[1:]

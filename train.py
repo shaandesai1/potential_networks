@@ -14,13 +14,13 @@ import tensorflow as tf
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument('-hidden_dims', '--hidden_dims', type=float, default=256)
+parser.add_argument('-hidden_dims', '--hidden_dims', type=int, default=256)
 parser.add_argument('-num_hdims', '--num_hdims', type=int, default=2)
-parser.add_argument('-lr_iters', '--lr_iters', type=float, default=10000)
+parser.add_argument('-lr_iters', '--lr_iters', type=int, default=10000)
 parser.add_argument('-nonlinearity', '--nonlinearity', type=str, default='tanh')
 parser.add_argument('-long_range', '--long_range', type=int, default=0)
 parser.add_argument('-integ_step', '--integ_step', type=int, default=2)
-
+# parser.add_argument('-')
 parser.add_argument('-ni', '--num_iters', type=int, default=10000)
 parser.add_argument("-n_test_traj", '--ntesttraj', type=int, default=20)
 parser.add_argument("-n_train_traj", '--ntraintraj', type=int, default=10)
@@ -65,7 +65,7 @@ else:
     noisy = False
 dataset_name = args.dname
 expt_name = args.save_name
-fname = f'{args.fname}_{args.hidden_dims}_{args.num_hdims}_{args.lr_iters}_{args.nonlinearity}_{args.long_range}_{args.dt}'
+fname = f'{args.fname}_{args.hidden_dims}_{args.num_hdims}_{args.lr_iters}_{args.nonlinearity}_{args.dt}_{args.integ_step}'
 # dataset preprocessing
 train_data = get_dataset(dataset_name, expt_name, num_trajectories, num_nodes, T_max, dt, srate, args.noise, 0)
 valid_data = get_dataset(dataset_name, expt_name, n_test_traj, num_nodes, T_max_t, dt, srate, 0, 11)
@@ -84,7 +84,7 @@ else:
 
 hamiltonian_fn = get_hamiltonian(dataset_name)
 # model loop settings
-model_types = ['graphic']
+model_types = ['classic','graphic']
 
 classic_methods = ['dn', 'hnn', 'pnn']
 graph_methods = ['dgn', 'hogn', 'pgn']
@@ -150,7 +150,9 @@ for model_type in model_types:
             for t_iters in range(n_test_traj):
                 input_batch = test_xnow[0, t_iters, :].reshape(1, -1)
                 true_batch = test_xnow[1:, t_iters, :]
-                error, yhat = gm.test_step(input_batch, true_batch, BS_test)
+                error, yhat = gm.test_step(input_batch, true_batch, test_xnow.shape[0]-1)
+                yhat = yhat.reshape(-1,input_batch.shape[1])
+                true_batch = true_batch.reshape(-1,input_batch.shape[1])
                 hp = hamiltonian_fn(yhat, model_type)
                 hp_gt = hamiltonian_fn(true_batch, model_type)
                 state_error = mean_squared_error(yhat, true_batch)
@@ -205,12 +207,14 @@ for model_type in model_types:
             tf.reset_default_graph()
             sess = tf.Session()
             kwargs = {'num_hdims': args.num_hdims,
-                      'hidden_dims': args.hidden_dims,
+                      'hidden_dims': int(args.hidden_dims/2),
                       'lr_iters': args.lr_iters,
                       'nonlinearity': args.nonlinearity,
                       'long_range': args.long_range,
                       'integ_step': args.integ_step}
 
+
+            # print(f'xnowshape:{xnow.shape}')
             gm = graph_model(sess, graph_method, num_nodes, xnow.shape[1],
                  integ, expt_name, sublr, noisy, spdim, srate, **kwargs)
             sess.run(tf.global_variables_initializer())
@@ -222,10 +226,8 @@ for model_type in model_types:
                     # samp_size, -1, num_nodes, 2vdim
                     input_batch = xnow[0, :, :, :].reshape(-1,spdim)
                     true_batch = xnow[1:, :, :, :].reshape(args.integ_step-1,-1,spdim)
-                    print(input_batch.shape)
-                    print(true_batch.shape)
-                    print(newmass.shape)
-                    print(xnow.shape[1])
+                    # print(f'input_batch:{input_batch.shape}')
+                    # print(f't_batch:{true_batch.shape}')
                     loss, _ = gm.train_step(input_batch, true_batch,newmass,newks)
 
                     # writer.add_scalar('train_loss', loss, iteration * Tot_iters + sub_iter)
@@ -235,10 +237,12 @@ for model_type in model_types:
             print('Iteration:{},Training Loss:{:.3g}'.format(iteration  + sub_iter, loss))
 
             for t_iters in range(n_test_traj):
-                input_batch = test_xnow[num_nodes * t_iters * BS_test:num_nodes * t_iters * BS_test + num_nodes]
-                true_batch = test_xnext[num_nodes * t_iters * BS_test:num_nodes * (t_iters + 1) * BS_test]
-                error, yhat = gm.test_step(input_batch, true_batch, np.reshape(test_ks[t_iters * BS_test], [1, -1]),
-                                           np.reshape(test_mass[t_iters * BS_test], [1, -1]), BS_test)
+                input_batch = test_xnow[0, t_iters,:, :].reshape(-1, spdim)
+                true_batch = test_xnow[1:, t_iters, :,:].reshape(test_xnow.shape[0]-1,-1,spdim)
+
+                error, yhat = gm.test_step(input_batch, true_batch, test_ks[t_iters].reshape(-1,num_nodes),test_mass[t_iters].reshape(-1,num_nodes), test_xnow.shape[0]-1)
+                yhat = yhat.reshape(-1,spdim)
+                true_batch = true_batch.reshape(-1,spdim)
                 hp = hamiltonian_fn(yhat, model_type)
                 hp_gt = hamiltonian_fn(true_batch, model_type)
                 state_error = mean_squared_error(yhat, true_batch)
