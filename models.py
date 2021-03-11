@@ -203,8 +203,10 @@ class nongraph_model(object):
 
         if self.is_noisy:
             self.loss_op_tr = -log_likelihood_y(self.next_step, self.ground_truth_ph, self.log_noise_var)
+            self.loss_op_test = -log_likelihood_y(self.next_step, self.ground_truth_ph, self.log_noise_var)
         else:
             self.loss_op_tr = self.create_loss_ops(self.next_step, self.ground_truth_ph)
+            self.loss_op_test = self.create_loss_ops(self.next_step, self.ground_truth_ph)
 
         global_step = tf.Variable(0, trainable=False)
         rate = tf.compat.v1.train.exponential_decay(self.lr, global_step, self.lr_iters, self.lr_scale, staircase=False)
@@ -275,7 +277,7 @@ class nongraph_model(object):
         train_feed = {self.input_ph: input_batch,
                       self.ground_truth_ph: true_batch,
                       }
-        train_ops = [self.loss_op_tr, self.next_step]
+        train_ops = [self.loss_op_test, self.next_step]
         loss, next_pred = self.sess.run(train_ops, feed_dict=train_feed)
 
         return loss, next_pred

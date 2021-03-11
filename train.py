@@ -50,7 +50,7 @@ iters = args.num_iters
 n_test_traj = args.ntesttraj
 num_trajectories = args.ntraintraj
 T_max = args.tmax
-T_max_t = T_max * 3
+T_max_t = T_max
 dt = args.dt
 srate = args.srate
 # -1 due to down sampling
@@ -68,7 +68,7 @@ expt_name = args.save_name
 fname = f'{args.fname}_{args.hidden_dims}_{args.num_hdims}_{args.lr_iters}_{args.nonlinearity}_{args.dt}_{args.integ_step}'
 # dataset preprocessing
 train_data = get_dataset(dataset_name, expt_name, num_trajectories, num_nodes, T_max, dt, srate, args.noise, 0)
-valid_data = get_dataset(dataset_name, expt_name, n_test_traj, num_nodes, T_max_t, dt, srate, 0, 11)
+valid_data = get_dataset(dataset_name, expt_name, n_test_traj, num_nodes, T_max_t, dt, srate, 0, 1)
 
 if args.long_range:
     BS = num_samples_per_traj
@@ -78,13 +78,13 @@ BS_test = test_num_samples_per_traj
 # dimension of a single particle, if 1D, spdim is 2
 spdim = int(train_data['x'][0].shape[0] / num_nodes)
 if args.long_range:
-    print_every = 10
+    print_every = 100
 else:
     print_every = 1000
 
 hamiltonian_fn = get_hamiltonian(dataset_name)
 # model loop settings
-model_types = ['classic','graphic']
+model_types = ['classic']
 
 classic_methods = ['dn', 'hnn', 'pnn']
 graph_methods = ['dgn', 'hogn', 'pgn']
@@ -96,10 +96,17 @@ df_all = pd.DataFrame(
              'valid_state_error', 'valid_std', 'valid_energy_error', 'valid_energy_std',
              'test_state_error', 'test_std', 'test_energy_error', 'test_energy_std'])
 
+
+
+
 for model_type in model_types:
     if model_type == 'classic':
         xnow = arrange_data(train_data, num_trajectories, num_nodes, T_max, dt, srate,
                             spatial_dim=spdim, nograph=True, samp_size=args.integ_step)
+
+        valid_xnow = arrange_data(valid_data, n_test_traj, num_nodes, T_max_t, dt, srate,
+                                 spatial_dim=spdim, nograph=True, samp_size=args.integ_step)
+
         test_xnow = arrange_data(valid_data, n_test_traj, num_nodes, T_max_t, dt, srate,
                                  spatial_dim=spdim, nograph=True, samp_size=int(np.ceil(T_max_t / dt)))
 
@@ -107,17 +114,14 @@ for model_type in model_types:
 
         for gm_index, classic_method in enumerate(classic_methods):
 
-            data_dir = 'data/' + dataset_name + '/' + str(sublr) + '/' + classic_method + '/' + fname + '/'
+            data_dir = f'data/{dataset_name}/{classic_method}/{integ}/{fname}'
             if not os.path.exists(data_dir):
                 print('non existent path....creating path')
                 os.makedirs(data_dir)
-            dirw = classic_method + str(sublr) + integ + fname
             if noisy:
-                writer = SummaryWriter(
-                    'noisy/' + dataset_name + '/' + str(sublr) + '/' + classic_method + '/' + dirw)
+                writer = SummaryWriter(f'noisy/{dataset_name}/{classic_method}/{integ}/{fname}')
             else:
-                writer = SummaryWriter(
-                    'noiseless/' + dataset_name + '/' + str(sublr) + '/' + classic_method + '/' + dirw)
+                writer = SummaryWriter(f'noiseless/{dataset_name}/{classic_method}/{integ}/{fname}')
             try:
                 sess.close()
             except NameError:
@@ -136,16 +140,43 @@ for model_type in model_types:
                                 expt_name, sublr, noisy, spdim, srate, **kwargs)
             sess.run(tf.global_variables_initializer())
             saver = tf.train.Saver()
+            bss = np.arange(xnow.shape[1])
 
             for iteration in range(num_training_iterations):
                 for sub_iter in range(1):
-                    input_batch = xnow[0, :, :]
-                    true_batch = xnow[1:, :, :]
+                    # np.random.shuffle(bss)
+                    input_batch = xnow[0, bss, :]
+                    true_batch = xnow[1:, bss, :]
                     loss, _ = gm.train_step(input_batch, true_batch)
-                    # print(iteration * Tot_iters + sub_iter)
                     writer.add_scalar('train_loss', loss, iteration + sub_iter)
                     if ((iteration + sub_iter) % print_every == 0):
                         print('Iteration:{},Training Loss:{:.3g}'.format(iteration + sub_iter, loss))
+
+                        input_batch = valid_xnow[0,:,:]
+                        true_batch = valid_xnow[1:,:,:]
+                        # t1_start = process_time()
+                        loss, _ = gm.valid_step(input_batch, true_batch)
+                        print('Iteration:{},Validation Loss:{:.3g}'.format(iteration + sub_iter, loss))
+                        writer.add_scalar('valid_loss', loss, iteration + sub_iter)
+
+            input_batch = xnow[0, :, :]
+            true_batch = xnow[1:, :, :]
+            train_loss, train_pred_state = gm.valid_step(input_batch, true_batch)
+            train_std = ((train_pred_state - true_batch) ** 2).std()
+            hp = hamiltonian_fn(train_pred_state, model_type)
+            hp_gt = hamiltonian_fn(true_batch, model_type)
+            train_energy_error = mean_squared_error(np.sum(hp, 0), np.sum(hp_gt, 0))
+            train_energy_std = ((np.sum(hp, 0) - np.sum(hp_gt, 0)) ** 2).std()
+
+            input_batch = valid_xnow[0, :, :]
+            true_batch = valid_xnow[1:, :, :]
+            valid_loss, valid_pred_state = gm.valid_step(input_batch, true_batch)
+            valid_std = ((valid_pred_state - true_batch) ** 2).std()
+            hp = hamiltonian_fn(valid_pred_state, model_type)
+            hp_gt = hamiltonian_fn(true_batch, model_type)
+            valid_energy_error = mean_squared_error(np.sum(hp, 0), np.sum(hp_gt, 0))
+            valid_energy_std = ((np.sum(hp, 0) - np.sum(hp_gt, 0)) ** 2).std()
+
 
             for t_iters in range(n_test_traj):
                 input_batch = test_xnow[0, t_iters, :].reshape(1, -1)
@@ -160,8 +191,8 @@ for model_type in model_types:
                 test_std = ((yhat - true_batch) ** 2).std()
                 test_energy_std = ((np.sum(hp, 0) - np.sum(hp_gt, 0)) ** 2).std()
                 df_all.loc[len(df_all)] = [classic_method, model_type, t_iters,
-                                           1, 1, 1, 1,
-                                           1, 1, 1, 1,
+                                           train_loss, train_std, train_energy_error, train_energy_std,
+                                           valid_loss, valid_std, valid_energy_error, valid_energy_std,
                                            state_error, test_std, energy_error, test_energy_std]
                 df_all.to_csv(f'run_data_{dataset_name}_{integ}_{noisy}_{fname}.csv')
 

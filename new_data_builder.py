@@ -143,7 +143,7 @@ def choose_integrator_nongraph(method):
 
 def get_system(system_name, integrator_type, num_samples, num_parts, T_max, dt, srate, noise_std=0, seed=3):
     SYSTEMS = {'pendulum': pendulum, 'nspring': spring_particle, 'ngrav': ngrav, 'mass_spring': mass_spring,
-               'heinon': heinon_heiles}
+               'heinon': heinon_heiles,'three_body':three_body}
 
     if system_name in SYSTEMS:
         return SYSTEMS[system_name](integrator_type, num_samples, num_parts, T_max, dt, srate, noise_std, seed)
@@ -180,7 +180,7 @@ def heinon_heiles(integrator_type, num_trajectories, NUM_PARTS, T_max, dt, sub_s
         return dynamics_fn(0, coords)
 
     def get_trajectory(t_span=[0, T_max], timescale=dt, ssr=sub_sample_rate, radius=None, y0=None, noise_std=noise_std):
-
+        np.random.seed(seed)
         # get initial state
         x = np.random.uniform(-0.5, 0.5)
         y = np.random.uniform(-0.5, 0.5)
@@ -534,4 +534,183 @@ def ngrav(integrator_type, num_samples, num_particles, T_max, dt, srate, noise_s
 
     return sample_orbits(timesteps=int(np.ceil(T_max / dt)), trials=num_samples, nbodies=2, orbit_noise=5e-2,
                          min_radius=0.5, max_radius=1.5, t_span=[0, T_max], verbose=False)
+
+
+def three_body(integrator_type, num_samples, num_particles, T_max, dt, srate, noise_std, seed):
+    """3-body gravitational problem"""
+
+
+    ##### ENERGY #####
+    def potential_energy(state):
+        '''U=\sum_i,j>i G m_i m_j / r_ij'''
+        tot_energy = np.zeros((1, 1, state.shape[2]))
+        for i in range(state.shape[0]):
+            for j in range(i + 1, state.shape[0]):
+                r_ij = ((state[i:i + 1, 1:3] - state[j:j + 1, 1:3]) ** 2).sum(1, keepdims=True) ** .5
+                m_i = state[i:i + 1, 0:1]
+                m_j = state[j:j + 1, 0:1]
+                tot_energy += m_i * m_j / r_ij
+        U = -tot_energy.sum(0).squeeze()
+        return U
+
+
+    def kinetic_energy(state):
+        '''T=\sum_i .5*m*v^2'''
+        energies = .5 * state[:, 0:1] * (state[:, 3:5] ** 2).sum(1, keepdims=True)
+        T = energies.sum(0).squeeze()
+        return T
+
+
+    def total_energy(state):
+        return potential_energy(state) + kinetic_energy(state)
+
+
+    def update(t, state):
+        qs = state[:int( 2 * 3)].reshape(-1, 2)
+        ps = state[int( 2 * 3):].reshape(-1, 2)
+        ms = np.array([1, 1, 1]).reshape(3, 1)
+        state = np.concatenate([qs, ps], 1)
+        nstate = np.concatenate([ms,qs, ps], 1)
+        deriv = np.zeros_like(state)
+        deriv[:, :2] = state[:, 2:4]  # dx, dy = vx, vy
+        deriv[:, 2:4] = get_accelerations(nstate)
+
+        qd = deriv[:, :2].ravel()
+        pd = deriv[:, 2:4].ravel()
+        return np.hstack([qd, pd])
+
+
+    ##### DYNAMICS #####
+    def get_accelerations(state, epsilon=0):
+        # shape of state is [bodies x properties]
+        net_accs = []  # [nbodies x 2]
+        for i in range(state.shape[0]):  # number of bodies
+            other_bodies = np.concatenate([state[:i, :], state[i + 1:, :]], axis=0)
+            displacements = other_bodies[:, 1:3] - state[i, 1:3]  # indexes 1:3 -> pxs, pys
+            distances = (displacements ** 2).sum(1, keepdims=True) ** 0.5
+            masses = other_bodies[:, 0:1]  # index 0 -> mass
+            pointwise_accs = masses * displacements / (distances ** 3 + epsilon)  # G=1
+            net_acc = pointwise_accs.sum(0, keepdims=True)
+            net_accs.append(net_acc)
+        net_accs = np.concatenate(net_accs, axis=0)
+        return net_accs
+
+
+    ##### INITIALIZE THE TWO BODIES #####
+    def rotate2d(p, theta):
+        c, s = np.cos(theta), np.sin(theta)
+        R = np.array([[c, -s], [s, c]])
+        return (R @ p.reshape(2, 1)).squeeze()
+
+
+    def random_config(nu=2e-1, min_radius=0.9, max_radius=1.2):
+        '''This is not principled at all yet'''
+        state = np.zeros((3, 5))
+        state[:, 0] = 1
+        p1 = 2 * np.random.rand(2) - 1
+        r = np.random.rand() * (max_radius - min_radius) + min_radius
+
+        p1 *= r / np.sqrt(np.sum((p1 ** 2)))
+        p2 = rotate2d(p1, theta=2 * np.pi / 3)
+        p3 = rotate2d(p2, theta=2 * np.pi / 3)
+
+        # # velocity that yields a circular orbit
+        v1 = rotate2d(p1, theta=np.pi / 2)
+        v1 = v1 / r ** 1.5
+        v1 = v1 * np.sqrt(np.sin(np.pi / 3) / (2 * np.cos(np.pi / 6) ** 2))  # scale factor to get circular trajectories
+        v2 = rotate2d(v1, theta=2 * np.pi / 3)
+        v3 = rotate2d(v2, theta=2 * np.pi / 3)
+
+        # make the circular orbits slightly chaotic
+        v1 *= 1 + nu * (2 * np.random.rand(2) - 1)
+        v2 *= 1 + nu * (2 * np.random.rand(2) - 1)
+        v3 *= 1 + nu * (2 * np.random.rand(2) - 1)
+
+        state[0, 1:3], state[0, 3:5] = p1, v1
+        state[1, 1:3], state[1, 3:5] = p2, v2
+        state[2, 1:3], state[2, 3:5] = p3, v3
+        return state
+
+
+    ##### INTEGRATE AN ORBIT OR TWO #####
+    def sample_orbits(timesteps=20, trials=5000, nbodies=3, orbit_noise=2e-1,
+                      min_radius=0.9, max_radius=1.2, t_span=[0, 5], verbose=False, **kwargs):
+        orbit_settings = locals()
+        if verbose:
+            print("Making a dataset of near-circular 3-body orbits:")
+        np.random.seed(seed)
+        state = random_config(nu=orbit_noise, min_radius=min_radius, max_radius=max_radius)
+        orbit, settings = get_orbit(state, t_points=timesteps, t_span=t_span, nbodies=nbodies, **kwargs)
+        #         print(orbit.shape)
+        #         batch = orbit.transpose(2,0,1).reshape(-1,nbodies*5)
+
+        #         for state in batch:
+        #             dstate = update(None, state)
+
+        #             # reshape from [nbodies, state] where state=[m, qx, qy, px, py]
+        #             # to [canonical_coords] = [qx1, qx2, qy1, qy2, px1,px2,....]
+        #             coords = state.reshape(nbodies,5).T[1:].flatten()
+        #             dcoords = dstate.reshape(nbodies,5).T[1:].flatten()
+        #             x.append(coords)
+        #             dx.append(dcoords)
+
+        #             shaped_state = state.copy().reshape(nbodies,5,1)
+        #             e.append(total_energy(shaped_state))
+
+        #     data = {'coords': np.stack(x)[:N],
+        #             'dcoords': np.stack(dx)[:N],
+        #             'energy': np.stack(e)[:N] }
+        return orbit
+
+
+    def get_orbit(state, update_fn=update, t_points=100, t_span=[0, 2], integrator_type=integrator_type, **kwargs):
+        if not 'rtol' in kwargs.keys():
+            kwargs['rtol'] = 1e-12
+            # kwargs['atol'] = 1e-12
+            # kwargs['atol'] = 1e-9
+
+        orbit_settings = locals()
+
+        nbodies = state.shape[0]
+        t_eval = np.arange(t_span[0], t_span[1], dt)
+        if len(t_eval) != t_points:
+            t_eval = t_eval[:-1]
+        orbit_settings['t_eval'] = t_eval
+        # print(state)
+
+        qs = state[:, 1:3].ravel()
+        ps = state[:, 3:5].ravel()
+
+        if integrator_type == 'gt':
+            path = solve_ivp(fun=update_fn, t_span=t_span, y0=np.hstack([ qs, ps]),
+                             t_eval=t_eval, method='DOP853', **kwargs)
+            orbit = path['y'].T
+        #         elif 'vi' in integrator_type:
+        #             orbit = rk(dynamics_fn, np.arange(0, T_max, dt), state.flatten(), dt)
+        else:
+            orbit = rk(dynamics_fn, np.arange(0, T_max, dt), np.hstack([ qs, ps]), dt)
+
+        return orbit, orbit_settings
+
+
+    def dynamics_fn(state):
+        return update(0, state)
+
+
+    def rk(dx_dt_fn, t, y0, dt):
+        single_step = choose_integrator_nongraph(integrator_type)
+        store = []
+        store.append(y0)
+        for i in range(len(t)):
+            #             print(type(y0))
+            ynext = single_step(dx_dt_fn, y0, dt)
+            store.append(ynext)
+            y0 = ynext
+
+        return store[:-1]
+
+
+
+    return sample_orbits(timesteps=int(np.ceil(T_max / dt)), trials=1, nbodies=3, orbit_noise=5e-2,
+                             min_radius=0.9, max_radius=1.2, t_span=[0, T_max], verbose=False)
 

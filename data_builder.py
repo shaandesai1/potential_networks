@@ -516,11 +516,11 @@ def pendulum(expt_name, num_samples, num_particles, T_max, dt, srate, noise_std,
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-    d = get_dataset('pendulum', 'temp', 10, 1, 5.1, 0.1, 0.1)
-    #d1 = get_dataset('mass_spring', 'temp', 25, 1,6.1, 0.1, 0.1,seed=11)
-
-    plt.scatter(d['x'][:, 0], d['x'][:, 1])
-   # plt.scatter(d1['x'][:, 0], d1['x'][:, 1])
+    d = get_dataset('pendulum', 'temp', 25, 1, 2, 0.01, 0.01,seed=1)
+    d1 = get_dataset('pendulum', 'temp', 20, 1,2, 0.01, 0.01,seed=0)
+    #plt.scatter(d['x'][:, 0], d['x'][:, 1],c='blue')
+    plt.scatter(d['x'][:, 0], d['x'][:, 1],c='red')
+    plt.scatter(d1['x'][:, 0], d1['x'][:, 1],alpha=0.1)
 
     plt.show()
 
