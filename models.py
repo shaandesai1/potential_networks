@@ -209,7 +209,7 @@ class nongraph_model(object):
             self.loss_op_test = self.create_loss_ops(self.next_step, self.ground_truth_ph)
 
         global_step = tf.Variable(0, trainable=False)
-        rate = tf.compat.v1.train.exponential_decay(self.lr, global_step, self.lr_iters, self.lr_scale, staircase=False)
+        rate = self.lr#tf.compat.v1.train.exponential_decay(self.lr, global_step, self.lr_iters, self.lr_scale, staircase=False)
         # tf.train.AdamW()
         optimizer = tf.train.AdamOptimizer(rate)
         self.step_op = optimizer.minimize(self.loss_op_tr, global_step=global_step)
@@ -430,11 +430,13 @@ class graph_model(object):
 
         if self.is_noisy:
             self.loss_op_tr = -log_likelihood_y(self.next_step, self.true_dq_ph, self.log_noise_var)
+            self.loss_op_test = -log_likelihood_y(self.next_step, self.true_dq_ph, self.log_noise_var)
         else:
             self.loss_op_tr = self.create_loss_ops(self.next_step, self.true_dq_ph)
+            self.loss_op_test = self.create_loss_ops(self.next_step, self.true_dq_ph)
 
         global_step = tf.Variable(0, trainable=False)
-        rate = tf.compat.v1.train.exponential_decay(self.lr, global_step, self.lr_iters, self.lr_scale, staircase=False)
+        rate = self.lr#tf.compat.v1.train.exponential_decay(self.lr, global_step, self.lr_iters, self.lr_scale, staircase=False)
         optimizer = tf.train.AdamOptimizer(rate)
         self.step_op = optimizer.minimize(self.loss_op_tr, global_step=global_step)
 
@@ -577,29 +579,12 @@ class graph_model(object):
         return loss, next_pred
 
     def valid_step(self, input_batch, true_batch, ks, mass):
-        BS = int(len(input_batch) / self.num_nodes)
-        integ = choose_integrator(self.integ_method)
-        base_graph_tr = tf.compat.v1.placeholder(tf.float32, shape=[self.num_nodes * BS, self.spatial_dim])
-        ks_ph = tf.compat.v1.placeholder(tf.float32, shape=[BS, self.num_nodes])
-        ms_ph = tf.compat.v1.placeholder(tf.float32, shape=[BS, self.num_nodes])
-        true_dq_ph = tf.compat.v1.placeholder(tf.float32, shape=[None, self.spatial_dim])
-
-        if self.deriv_method == 'dgn':
-            next_step = integ(self.deriv_fun_dgn, base_graph_tr, ks_ph, ms_ph, self.dt, BS,
-                              self.num_nodes)
-        elif self.deriv_method == 'hogn':
-            next_step = integ(self.deriv_fun_hogn, base_graph_tr, ks_ph, ms_ph, self.dt, BS,
-                              self.num_nodes)
-        elif self.deriv_method == 'pgn':
-            next_step = integ(self.deriv_fun_pgn, base_graph_tr, ks_ph, ms_ph, self.dt, BS,
-                              self.num_nodes)
-        loss_op_tr = self.create_loss_ops(next_step, true_dq_ph)
-        train_feed = {base_graph_tr: input_batch,
-                      true_dq_ph: true_batch,
-                      ks_ph: ks,
-                      ms_ph: mass}
-        train_ops = [loss_op_tr, next_step]
-        loss, next_pred = self.sess.run(train_ops, feed_dict=train_feed)
+        train_feed = {self.base_graph_tr: input_batch,
+                      self.true_dq_ph: true_batch,
+                      self.ks_ph: ks,
+                      self.ms_ph: mass}
+        train_ops = [self.loss_op_test,self.next_step]
+        loss,next_pred = self.sess.run(train_ops, feed_dict=train_feed)
 
         return loss, next_pred
 
