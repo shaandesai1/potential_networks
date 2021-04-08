@@ -85,7 +85,7 @@ else:
 
 hamiltonian_fn = get_hamiltonian(dataset_name)
 # model loop settings
-model_types = ['graphic']
+model_types = ['classic','graphic']
 
 classic_methods = ['dn', 'hnn', 'pnn']
 graph_methods = ['dgn', 'hogn', 'pgn']
@@ -164,8 +164,8 @@ for model_type in model_types:
             input_batch = xnow[0, bss, :]
             true_batch = xnow[1:, bss, :]
             train_loss, train_pred_state = gm.valid_step(input_batch, true_batch)
-            print(train_pred_state.shape,true_batch.shape)
-
+            true_batch = xnow[1:, bss, :].reshape(-1, int(spdim * num_nodes))
+            train_pred_state = train_pred_state.reshape(-1,int(spdim*num_nodes))
             train_std = ((train_pred_state - true_batch) ** 2).std()
             hp = hamiltonian_fn(train_pred_state.squeeze(), model_type)
             hp_gt = hamiltonian_fn(true_batch.squeeze(), model_type)
@@ -176,6 +176,8 @@ for model_type in model_types:
             input_batch = valid_xnow[0, bss, :]
             true_batch = valid_xnow[1:, bss, :]
             valid_loss, valid_pred_state = gm.valid_step(input_batch, true_batch)
+            true_batch = valid_xnow[1:, bss, :].reshape(-1, int(spdim * num_nodes))
+            valid_pred_state = valid_pred_state.reshape(-1,int(spdim*num_nodes))
             valid_std = ((valid_pred_state - true_batch) ** 2).std()
             hp = hamiltonian_fn(valid_pred_state.squeeze(), model_type)
             hp_gt = hamiltonian_fn(true_batch.squeeze(), model_type)
@@ -189,6 +191,7 @@ for model_type in model_types:
                 error, yhat = gm.test_step(input_batch, true_batch, test_xnow.shape[0]-1)
                 yhat = yhat.reshape(-1,input_batch.shape[1])
                 true_batch = true_batch.reshape(-1,input_batch.shape[1])
+                # print(yhat.shape,true_batch.shape)
                 hp = hamiltonian_fn(yhat.squeeze(), model_type)
                 hp_gt = hamiltonian_fn(true_batch.squeeze(), model_type)
                 state_error = mean_squared_error(yhat, true_batch)
@@ -286,16 +289,22 @@ for model_type in model_types:
             input_batch = xnow[0, bss, :, :].reshape(-1,spdim)
             true_batch = xnow[1:, bss, :, :].reshape(args.integ_step-1,-1,spdim)
             train_loss, train_pred_state = gm.valid_step(input_batch, true_batch,newmass[bss],newks[bss])
-            print(train_pred_state.shape)
+            true_batch = xnow[1:, bss, :, :].reshape(-1, spdim)
+            train_pred_state = train_pred_state.reshape(-1,spdim)
+            # print(train_pred_state.shape)
             train_std = ((train_pred_state - true_batch) ** 2).std()
+            # print(train_pred_state.shape)
             hp = hamiltonian_fn(train_pred_state.squeeze(), model_type)
             hp_gt = hamiltonian_fn(true_batch.squeeze(), model_type)
+            # print(hp,hp_gt)
             train_energy_error = mean_squared_error(np.sum(hp, 0), np.sum(hp_gt, 0))
             train_energy_std = ((np.sum(hp, 0) - np.sum(hp_gt, 0)) ** 2).std()
 
             input_batch = valid_xnow[0, bss,:, :].reshape(-1,spdim)
             true_batch = valid_xnow[1:, bss, :,:].reshape(args.integ_step-1,-1,spdim)
             valid_loss, valid_pred_state = gm.valid_step(input_batch, true_batch,valid_mass[bss],valid_ks[bss])
+            true_batch = xnow[1:, bss, :, :].reshape(-1, spdim)
+            valid_pred_state = valid_pred_state.reshape(-1,spdim)
             valid_std = ((valid_pred_state - true_batch) ** 2).std()
             hp = hamiltonian_fn(valid_pred_state.squeeze(), model_type)
             hp_gt = hamiltonian_fn(true_batch.squeeze(), model_type)
