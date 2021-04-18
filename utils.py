@@ -1,9 +1,6 @@
 import numpy as np
 import tensorflow as tf
 
-#import torch
-
-
 ### GRAPH BASED INTEGRATORS
 def rk4(dx_dt_fn, x_t, ks, ms, dt, bs, nodes):
     k1 = dt * dx_dt_fn(x_t, ks, ms, bs, nodes)
@@ -338,7 +335,8 @@ def get_hamiltonian(dataset_name):
 
         return hamiltonian_fn
 
-    if dataset_name == 'heinon':
+
+    elif dataset_name == 'heinon':
         def hamiltonian_fn(coords,model_type):
             x,y,px,py = coords[:,0],coords[:,1],coords[:,2],coords[:,3]
             lambda_ = 1
@@ -373,8 +371,8 @@ def get_hamiltonian(dataset_name):
             kvals = []
             for qq in range(BS):
                 if model_type == 'classic':
-                    xs = x.reshape(-1, 2)[qq * 2:(qq + 1) * 2, :2]
-                    vs = v.reshape(-1, 2)[qq * 2:(qq + 1) * 2, 2:]
+                    xs = x.reshape(-1, 2)[qq * 2:(qq + 1) * 2]
+                    vs = v.reshape(-1, 2)[qq * 2:(qq + 1) * 2]
                 else:
                     xs = vec[qq * 2:(qq + 1) * 2, :2]
                     vs = vec[qq * 2:(qq + 1) * 2, 2:]
@@ -396,6 +394,51 @@ def get_hamiltonian(dataset_name):
             return np.array(kvals), np.array(uvals)
 
         return hamiltonian_fn
+
+
+    elif dataset_name == 'three_body':
+
+        def hamiltonian_fn(vec, model_type):
+            m = [1, 1,1]
+            num_particles = 3
+            if model_type == 'classic':
+                x = vec[:, :num_particles * 2]
+                v = vec[:, 2 * num_particles:]
+                BS = len(x)
+            else:
+                BS = int(len(vec) / num_particles)
+            #         print(x.shape)
+            uvals = []
+            #         print(vec.shape)
+            kvals = []
+            for qq in range(BS):
+                if model_type == 'classic':
+                    xs = x.reshape(-1, 2)[qq * 3:(qq + 1) * 3]
+                    vs = v.reshape(-1, 2)[qq * 3:(qq + 1) * 3]
+                else:
+                    xs = vec[qq * 3:(qq + 1) * 3, :2]
+                    vs = vec[qq * 3:(qq + 1) * 3, 2:]
+
+                #             print(x.shape)
+                U1 = 0
+                K = 0
+
+                for i in range(num_particles):
+                    for j in range(i + 1, num_particles):
+                        r = np.linalg.norm(xs[i] - xs[j])
+                        U1 -= m[i] * m[j] / r
+
+                    K += 0.5 * m[i] * ((vs[i] ** 2).sum())
+                # K2 = 0.5*m[1]*((v2**2).sum())
+                # K = K + K1 + K2
+                uvals.append(U1)
+                kvals.append(K)
+            return np.array(kvals), np.array(uvals)
+
+        return hamiltonian_fn
+
+
+
     elif dataset_name == 'n_spring':
 
         def hamiltonian_fn(vec, model_type, num_particles=5, m=[1, 1, 1, 1, 1], k=[1, 1, 1, 1, 1]):
@@ -432,44 +475,6 @@ def get_hamiltonian(dataset_name):
     else:
         raise ValueError("The Hamiltonian does not exist")
 
-    elif dataset_name == 'three_body':
 
-        def hamiltonian_fn(vec, model_type):
-            m = [1, 1,1]
-            num_particles = 3
-            if model_type == 'classic':
-                x = vec[:, :num_particles * 2]
-                v = vec[:, 2 * num_particles:]
-                BS = len(x)
-            else:
-                BS = int(len(vec) / num_particles)
-            #         print(x.shape)
-            uvals = []
-            #         print(vec.shape)
-            kvals = []
-            for qq in range(BS):
-                if model_type == 'classic':
-                    xs = x.reshape(-1, 2)[qq * 3:(qq + 1) * 3, :2]
-                    vs = v.reshape(-1, 2)[qq * 3:(qq + 1) * 3, 2:]
-                else:
-                    xs = vec[qq * 2:(qq + 1) * 2, :2]
-                    vs = vec[qq * 2:(qq + 1) * 2, 2:]
 
-                #             print(x.shape)
-                U1 = 0
-                K = 0
 
-                for i in range(num_particles):
-                    for j in range(i + 1, num_particles):
-                        r = np.linalg.norm(xs[i] - xs[j])
-                        U1 -= m[i] * m[j] / r
-
-                    K += 0.5 * m[i] * ((vs[i] ** 2).sum())
-                # K2 = 0.5*m[1]*((v2**2).sum())
-                # K = K + K1 + K2
-                uvals.append(U1)
-                kvals.append(K)
-            return np.array(kvals), np.array(uvals)
-
-        return hamiltonian_fn
- 
