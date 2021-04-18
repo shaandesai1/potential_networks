@@ -115,7 +115,7 @@ for model_type in model_types:
 
         for gm_index, classic_method in enumerate(classic_methods):
 
-            data_dir = f'data/{dataset_name}/{classic_method}/{integ}/{fname}'
+            data_dir = f'data/{dataset_name}/{classic_method}/{integ}/{args.integ_step}/{args.dt}/{fname}'
             if not os.path.exists(data_dir):
                 print('non existent path....creating path')
                 os.makedirs(data_dir)
@@ -161,11 +161,13 @@ for model_type in model_types:
                         print('Iteration:{},Validation Loss:{:.3g}'.format(iteration + sub_iter, loss))
                         writer.add_scalar('valid_loss', loss, iteration + sub_iter)
 
+            saver.save(sess, data_dir + classic_method + integ + str(noisy))
+
             input_batch = xnow[0, bss, :]
             true_batch = xnow[1:, bss, :]
             train_loss, train_pred_state = gm.valid_step(input_batch, true_batch)
-            true_batch = xnow[1:, bss, :].reshape(-1, int(spdim * num_nodes))
-            train_pred_state = train_pred_state.reshape(-1,int(spdim*num_nodes))
+            true_batch = xnow[1:, bss, :].reshape(-1, int(spdim))
+            train_pred_state = train_pred_state.reshape(-1,int(spdim))
             train_std = ((train_pred_state - true_batch) ** 2).std()
             hp = hamiltonian_fn(train_pred_state.squeeze(), model_type)
             hp_gt = hamiltonian_fn(true_batch.squeeze(), model_type)
@@ -176,8 +178,8 @@ for model_type in model_types:
             input_batch = valid_xnow[0, bss, :]
             true_batch = valid_xnow[1:, bss, :]
             valid_loss, valid_pred_state = gm.valid_step(input_batch, true_batch)
-            true_batch = valid_xnow[1:, bss, :].reshape(-1, int(spdim * num_nodes))
-            valid_pred_state = valid_pred_state.reshape(-1,int(spdim*num_nodes))
+            true_batch = valid_xnow[1:, bss, :].reshape(-1, int(spdim))
+            valid_pred_state = valid_pred_state.reshape(-1,int(spdim))
             valid_std = ((valid_pred_state - true_batch) ** 2).std()
             hp = hamiltonian_fn(valid_pred_state.squeeze(), model_type)
             hp_gt = hamiltonian_fn(true_batch.squeeze(), model_type)
@@ -234,7 +236,7 @@ for model_type in model_types:
 
 
         for gm_index, graph_method in enumerate(graph_methods):
-            data_dir = f'data/{dataset_name}/{graph_method}/{integ}/{fname}'
+            data_dir = f'data/{dataset_name}/{graph_method}/{integ}/{args.integ_step}/{args.dt}/{fname}'
             if not os.path.exists(data_dir):
                 print('non existent path....creating path')
                 os.makedirs(data_dir)
@@ -284,7 +286,9 @@ for model_type in model_types:
                         print('Iteration:{},Validation Loss:{:.3g}'.format(iteration + sub_iter, loss))
                         writer.add_scalar('valid_loss', loss, iteration + sub_iter)
 
-#print('Iteration:{},Training Loss:{:.3g}'.format(iteration  + sub_iter, loss))
+            saver.save(sess, data_dir + graph_method + integ + str(noisy))
+
+            #print('Iteration:{},Training Loss:{:.3g}'.format(iteration  + sub_iter, loss))
 
             input_batch = xnow[0, bss, :, :].reshape(-1,spdim)
             true_batch = xnow[1:, bss, :, :].reshape(args.integ_step-1,-1,spdim)

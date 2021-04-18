@@ -340,10 +340,11 @@ def get_hamiltonian(dataset_name):
         def hamiltonian_fn(coords,model_type):
             x,y,px,py = coords[:,0],coords[:,1],coords[:,2],coords[:,3]
             lambda_ = 1
-            H = 0.5 * px ** 2 + 0.5 * py ** 2 + 0.5 * (x ** 2 + y ** 2) + lambda_ * (
+            K = 0.5 * px ** 2 + 0.5 * py ** 2
+            U = 0.5 * (x ** 2 + y ** 2) + lambda_ * (
                 (x ** 2) * y - (y ** 3) / 3)
-            return H
-
+            return K,U
+        return hamiltonian_fn
     elif dataset_name == 'pendulum':
 
         def hamiltonian_fn(coords, model_type):
@@ -453,8 +454,8 @@ def get_hamiltonian(dataset_name):
             kvals = []
             for qq in range(BS):
                 if model_type == 'classic':
-                    xs = x.reshape(-1, 2)[qq * num_particles:(qq + 1) * num_particles, :2]
-                    vs = v.reshape(-1, 2)[qq * num_particles:(qq + 1) * num_particles, 2:]
+                    xs = x.reshape(-1, 2)[qq * num_particles:(qq + 1) * num_particles]
+                    vs = v.reshape(-1, 2)[qq * num_particles:(qq + 1) * num_particles]
                 else:
                     xs = vec[qq * num_particles:(qq + 1) * num_particles, :2]
                     vs = vec[qq * num_particles:(qq + 1) * num_particles, 2:]
