@@ -8,10 +8,10 @@ Adapted,in part, from https://github.com/greydanus/hamiltonian-nn
 import pickle
 from scipy.integrate import solve_ivp as rk
 import autograd
-# import autograd.numpy as np
 from autograd.numpy import cos, sin
 solve_ivp = rk
 import numpy as np
+from utils import *
 
 def get_dataset(data_name, expt_name, num_samples, num_particles, T_max, dt, srate, noise_std=0, seed=0, pixels=False):
     """
@@ -76,7 +76,7 @@ def heinon_heiles(name, num_trajectories, NUM_PARTS, T_max, dt, sub_sample_rate,
 
         spring_ivp = rk(lambda t, y: dynamics_fn(t, y), t_span, y0,
                         t_eval=np.arange(0, t_span[1], timescale),
-                        rtol=1e-12, atol=1e-12, method='DOP853')
+                        rtol=1e-12, method='DOP853')
         accum = spring_ivp.y.T
         ssr = int(ssr / timescale)
         accum = accum[::ssr]
@@ -174,7 +174,7 @@ def spring_particle(name, num_trajectories, NUM_PARTS, T_max, dt, sub_sample_rat
         q = np.concatenate([positions, momentum]).ravel()
         qnrk = rk(lambda t, y: diffeq_hyper(t, y, ks, masses, num_particles), (0, T_max), q,
                   t_eval=np.arange(0, T_max, dt),
-                  rtol=1e-12, atol=1e-12, method='DOP853')
+                  rtol=1e-12, method='DOP853')
         accum = qnrk.y.T
         ssr = int(sub_sample_rate / dt)
         accum = accum[::ssr]
@@ -639,7 +639,7 @@ def pendulum(expt_name, num_samples, num_particles, T_max, dt, srate, noise_std,
         y0 = y0 / np.sqrt((y0 ** 2).sum()) * radius  ## set the appropriate radius
 
         spring_ivp = rk(lambda t, y: dynamics_fn2(t, y), t_span, y0,
-                        t_eval=np.arange(0, t_span[1], timescale),
+                        t_eval=np.arange(0, t_span[1], timescale),method='DOP853',rtol=1e-12,
                         )
 
         q, p = spring_ivp['y'][0], spring_ivp['y'][1]
@@ -683,13 +683,24 @@ def pendulum(expt_name, num_samples, num_particles, T_max, dt, srate, noise_std,
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-    d = get_dataset('three_body', 'temp', 2, 3, 4, 0.01, 0.01,seed=1)
+    d = get_dataset('pendulum', 'temp', 1, 1, 4, 0.01, 0.01,seed=1,noise_std=0)
     # d1 = get_dataset('pendulum', 'temp', 20, 1,2, 0.01, 0.01,seed=0)
-    #plt.scatter(d['x'][:, 0], d['x'][:, 1],c='blue')
-    plt.scatter(d['x'][:, 0], d['x'][:, 1],c='red')
-    plt.scatter(d['x'][:, 2], d['x'][:, 3], c='blue')
-    plt.scatter(d['x'][:, 4], d['x'][:, 5], c='green')
-
+    plt.scatter(d['x'][:, 0], d['x'][:, 1],c='blue')
+    # plt.scatter(d['x'][:, 0], d['x'][:, 1],c='red')
+    # plt.scatter(d['x'][:, 2], d['x'][:, 3], c='blue')
+    # plt.scatter(d['x'][:, 4], d['x'][:, 5], c='green')
+    # print(d['energy'])
+    ham = get_hamiltonian('pendulum')
+    epred = ham(d['x'],'classic')
+    print(np.sum(epred,0))
+    spdim = int(d['x'][0].shape[0] / 1)
+    xnow = arrange_data(d, 1, 1, 4, 0.01,0.01,spatial_dim=spdim, nograph=False, samp_size=2)
+    # print(xnow.shape)
+    # print(xnow[0,[1,2,3],:].shape)
+    true_batch = xnow[1:, :, :].reshape(-1, int(spdim))
+    # true_batch = xnow[1:, :, :]
+    hp_gt = ham(true_batch.squeeze(), 'graphic')
+    print(np.sum(hp_gt,0))
     # plt.scatter(d1['x'][:, 0], d1['x'][:, 1],alpha=0.1)
 
     plt.show()

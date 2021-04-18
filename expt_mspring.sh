@@ -11,7 +11,7 @@ do
     do
       for NONLIN in softplus
       do
-        python train1.py -ni 5000 -long_range 1 -nonlinearity $NONLIN -hidden_dims 200 -num_hdims 2 -lr_iters 10000 -n_test_traj 25 -n_train_traj 25 -tmax 6 -dt $deltat -srate $deltat -num_nodes 1 -dname mass_spring -noise_std $noisev -integrator $INTEG -fname expt_a -integ_step $INTEG_STEP
+        python train.py -ni 5000 -long_range 1 -nonlinearity $NONLIN -hidden_dims 200 -num_hdims 2 -lr_iters 10000 -n_test_traj 25 -n_train_traj 25 -tmax 3 -dt $deltat -srate $deltat -num_nodes 1 -dname mass_spring -noise_std $noisev -integrator $INTEG -fname expt_a -integ_step $INTEG_STEP
       done
     done
   done
