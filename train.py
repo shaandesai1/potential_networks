@@ -222,8 +222,8 @@ for model_type in model_types:
         valid_ks = np.repeat(valid_data['ks'], int(np.ceil(T_max / dt)) - args.integ_step + 1, axis=0).reshape(-1,
                                                                                                             num_nodes)
 
-        test_mass = valid_data['mass']
-        test_ks = valid_data['ks']
+        test_mass = test_data['mass']
+        test_ks = test_data['ks']
 
         num_training_iterations = iters
 
