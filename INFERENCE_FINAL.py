@@ -8,7 +8,7 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument('-hidden_dims', '--hidden_dims', type=int, default=200)
 parser.add_argument('-num_hdims', '--num_hdims', type=int, default=2)
-parser.add_argument('-tmax', '--tmax', type=float, default=20.4)
+parser.add_argument('-tmax', '--tmax', type=float, default=3)
 parser.add_argument('-lr_iters', '--lr_iters', type=int, default=10000)
 parser.add_argument('-nonlinearity', '--nonlinearity', type=str, default='softplus')
 parser.add_argument('-long_range', '--long_range', type=int, default=1)
@@ -19,9 +19,9 @@ parser.add_argument('-srate', '--srate', type=float, default=0.1)
 parser.add_argument('-dt', '--dt', type=float, default=0.1)
 parser.add_argument('-integrator', '--integrator', type=str, default='rk4')
 parser.add_argument('-save_name', '--save_name', type=str, default='trials_noise')
-parser.add_argument('-dname', '--dname', type=str, default='n_grav')
-parser.add_argument('-num_nodes', '--num_nodes', type=int, default=2)
-parser.add_argument('-noise_std', '--noise', type=float, default=0)
+parser.add_argument('-dname', '--dname', type=str, default='mass_spring')
+parser.add_argument('-num_nodes', '--num_nodes', type=int, default=1)
+parser.add_argument('-noise_std', '--noise', type=float, default=0.1)
 parser.add_argument('-fname', '--fname', type=str, default='expt_a')
 
 verbose = True
@@ -38,6 +38,7 @@ else:
 num_nodes = args.num_nodes
 iters = args.num_iters
 n_test_traj = args.ntesttraj
+T_max = args.tmax
 T_max_t = 5 * T_max
 dt = args.dt
 srate = args.srate
@@ -62,7 +63,7 @@ else:
     BS = 200
 
 # dimension of a single particle, if 1D, spdim is 2
-spdim = int(train_data['x'][0].shape[0] / num_nodes)
+spdim = int(test_data['x'][0].shape[0] / num_nodes)
 if args.long_range:
     print_every = 100
 else:
@@ -186,9 +187,18 @@ for model_type in model_types:
                     state_collector[f'{model_type}_{integ}_{t_iters}'] = yhat
                     state_collector[f'gt_{t_iters}'] = true_batch
 
+if noisy:
+    np.save(f'{dataset_name}_state_error_noisy.npy',err_coll)
+    np.save(f'{dataset_name}_energy_error_noisy.npy',ener_coll)
 
-np.save(f'{dataset_name}_state_error.npy',err_coll)
-np.save(f'{dataset_name}_energy_error.npy',ener_coll)
+    with open(f'{dataset_name}_state_collector_noisy.pickle', 'wb') as handle:
+        pickle.dump(state_collector, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-with open(f'{dataset_name}_state_collector.pickle', 'wb') as handle:
-    pickle.dump(state_collector, handle, protocol=pickle.HIGHEST_PROTOCOL)
+else:
+    np.save(f'{dataset_name}_state_error.npy',err_coll)
+    np.save(f'{dataset_name}_energy_error.npy',ener_coll)
+
+    with open(f'{dataset_name}_state_collector.pickle', 'wb') as handle:
+        pickle.dump(state_collector, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+
