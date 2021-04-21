@@ -38,6 +38,7 @@ else:
 num_nodes = args.num_nodes
 iters = args.num_iters
 n_test_traj = args.ntesttraj
+n_train_traj = args.ntesttraj
 T_max = args.tmax
 T_max_t = 5 * T_max
 dt = args.dt
@@ -87,6 +88,7 @@ state_collector = {}
 for model_type in model_types:
     for integ_index, integ in enumerate(integrator_list):
         if model_type == 'classic':
+
             test_xnow = arrange_data(test_data, n_test_traj, num_nodes, T_max_t, dt, srate,
                                      spatial_dim=spdim, nograph=True, samp_size=int(np.ceil(T_max_t / dt)))
             for gm_index, classic_method in enumerate(classic_methods):
@@ -101,7 +103,7 @@ for model_type in model_types:
                           'long_range': args.long_range,
                           'integ_step': args.integ_step}
 
-                gm = nongraph_model(sess, classic_method, num_nodes, xnow.shape[0] - 1, integ,
+                gm = nongraph_model(sess, classic_method, num_nodes, args.integ_step - 1, integ,
                                     expt_name, sublr, noisy, spdim, srate, **kwargs)
                 sess.run(tf.global_variables_initializer())
                 saver = tf.train.Saver()
