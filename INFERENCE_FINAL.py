@@ -162,8 +162,6 @@ for model_type in model_types:
                 sess.run(tf.global_variables_initializer())
                 saver = tf.train.Saver()
 
-                saver.save(sess, data_dir + graph_method + integ + str(noisy))
-
                 if noisy:
                     saver.restore(sess, data_dir + graph_method + integ + 'True')
                 else:
