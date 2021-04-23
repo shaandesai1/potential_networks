@@ -14,6 +14,7 @@ parser.add_argument('-nonlinearity', '--nonlinearity', type=str, default='softpl
 parser.add_argument('-long_range', '--long_range', type=int, default=1)
 parser.add_argument('-integ_step', '--integ_step', type=int, default=10)
 parser.add_argument('-ni', '--num_iters', type=int, default=10000)
+parser.add_argument('-n_train_traj','--n_train_traj',type=int,default=25)
 parser.add_argument("-n_test_traj", '--ntesttraj', type=int, default=25)
 parser.add_argument('-srate', '--srate', type=float, default=0.1)
 parser.add_argument('-dt', '--dt', type=float, default=0.1)
@@ -27,7 +28,7 @@ parser.add_argument('-fname', '--fname', type=str, default='expt_a')
 verbose = True
 verbose1 = False
 args = parser.parse_args()
-
+SAMPLE_BS = 200
 if args.long_range == 0:
     args.long_range = False
 else:
@@ -40,7 +41,7 @@ iters = args.num_iters
 n_test_traj = args.ntesttraj
 n_train_traj = args.ntesttraj
 T_max = args.tmax
-T_max_t = 5 * T_max
+T_max_t = 3 * T_max
 dt = args.dt
 srate = args.srate
 # -1 due to down sampling
@@ -108,9 +109,9 @@ for model_type in model_types:
                 sess.run(tf.global_variables_initializer())
                 saver = tf.train.Saver()
                 if noisy:
-                    saver.restore(sess, data_dir + classic_method + integ + fname + 'noisy')
+                    saver.restore(sess, data_dir + classic_method + integ + 'True')
                 else:
-                    saver.restore(sess, data_dir + classic_method + integ + fname)
+                    saver.restore(sess, data_dir + classic_method + integ + 'False')
 
                 for t_iters in range(n_test_traj):
                     input_batch = test_xnow[0, t_iters, :].reshape(1, -1)
@@ -164,9 +165,9 @@ for model_type in model_types:
                 saver.save(sess, data_dir + graph_method + integ + str(noisy))
 
                 if noisy:
-                    saver.restore(sess, data_dir + graphic_method + integ + fname + 'noisy')
+                    saver.restore(sess, data_dir + graph_method + integ + 'True')
                 else:
-                    saver.restore(sess, data_dir + graphic_method + integ + fname)
+                    saver.restore(sess, data_dir + graph_method + integ + 'False')
 
                 for t_iters in range(n_test_traj):
                     input_batch = test_xnow[0, t_iters, :, :].reshape(-1, spdim)
